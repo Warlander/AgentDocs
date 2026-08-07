@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentDocs — Test Plan</title>
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.6; max-width: 1000px; margin: 0 auto; padding: 2rem; color: #1a1a1a; background: #fafafa; }
+  @media (prefers-color-scheme: dark) {
+    body { color: #e0e0e0; background: #1a1a1a; }
+    .callout { background: rgba(234,179,8,0.08); }
+  }
+  h1, h2, h3 { font-weight: 600; margin-top: 2rem; }
+  h1 { border-bottom: 2px solid currentColor; padding-bottom: 0.3rem; }
+  code { font-family: 'SF Mono', Monaco, monospace; background: rgba(128,128,128,0.15); border-radius: 4px; padding: 0.1em 0.35em; font-size: 0.88em; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: 0.93rem; }
+  th, td { padding: 0.5rem 0.6rem; border-bottom: 1px solid rgba(128,128,128,0.3); text-align: left; vertical-align: top; }
+  th { font-weight: 600; }
+  td:first-child { white-space: nowrap; font-weight: 600; }
+  .callout { border-left: 4px solid #eab308; padding: 1rem 1.2rem; margin: 1rem 0; background: rgba(234,179,8,0.05); border-radius: 0 6px 6px 0; }
+  .grp { color: #0066cc; }
+  @media (prefers-color-scheme: dark) { .grp { color: #66aaff; } }
+</style>
+</head>
+<body>
+<main>
+<h1>AgentDocs — Test Plan</h1>
+<p>Complete list of tests proposed before public release. Framework: <strong>vitest</strong> (TS-native, zero config, runs in Node). Each test listed with inputs and expected outputs. Nothing written yet — this is the spec for approval.</p>
+
+<div class="callout">
+  <strong>Prerequisite refactor (small):</strong> <code>packages/server/src/index.ts</code> calls <code>serve()</code> at module top level, so importing it starts listeners. Extract route construction into <code>createApp(vaultDir)</code> in a new <code>app.ts</code>; <code>index.ts</code> becomes a thin entry that calls <code>createApp</code> + <code>serve</code>. Tests then build apps against temp vault dirs on ephemeral ports. Pure code motion, no behavior change.<br><br>
+  Unit-testable functions (<code>slugify</code>, <code>stripHtml</code>) move to a <code>util.ts</code> so they can be imported directly.
+</div>
+
+<h2><span class="grp">A.</span> Unit — <code>slugify()</code></h2>
+<table>
+  <tr><th>Test</th><th>Input</th><th>Expected output</th></tr>
+  <tr><td>A1 basic</td><td><code>"My Report"</code></td><td><code>"my-report"</code></td></tr>
+  <tr><td>A2 strips extension</td><td><code>"notes.html"</code>, <code>"notes.HTML"</code>, <code>"notes.htm"</code></td><td><code>"notes"</code> (all three)</td></tr>
+  <tr><td>A3 special chars</td><td><code>"Q3: results (final!) v2.0"</code></td><td><code>"q3-results-final-v2-0"</code></td></tr>
+  <tr><td>A4 edge dashes</td><td><code>"--weird--name--"</code></td><td><code>"weird-name"</code></td></tr>
+  <tr><td>A5 empty fallback</td><td><code>"!!!"</code>, <code>""</code>, <code>"..."</code></td><td><code>"doc"</code> (all three)</td></tr>
+  <tr><td>A6 non-ASCII</td><td><code>"zählung — résumé"</code></td><td>only <code>[a-z0-9-]</code>, no leading/trailing dash</td></tr>
+</table>
+
+<h2><span class="grp">B.</span> Unit — <code>stripHtml()</code></h2>
+<table>
+  <tr><th>Test</th><th>Input</th><th>Expected output</th></tr>
+  <tr><td>B1 tags removed</td><td><code>&lt;p&gt;Hello &lt;b&gt;world&lt;/b&gt;&lt;/p&gt;</code></td><td><code>"Hello world"</code></td></tr>
+  <tr><td>B2 script gutted</td><td><code>&lt;script&gt;alert("keep none")&lt;/script&gt;Visible</code></td><td><code>"Visible"</code> — script body not in index</td></tr>
+  <tr><td>B3 style gutted</td><td><code>&lt;style&gt;.x{color:red}&lt;/style&gt;Text</code></td><td><code>"Text"</code></td></tr>
+  <tr><td>B4 whitespace collapsed</td><td><code>"a\n\n  b\t\tc"</code></td><td><code>"a b c"</code></td></tr>
+  <tr><td>B5 case-insensitive</td><td><code>&lt;SCRIPT&gt;x&lt;/SCRIPT&gt;y</code></td><td><code>"y"</code></td></tr>
+</table>
+
+<h2><span class="grp">C.</span> Unit — <code>listDocs()</code> FTS query escaping</h2>
+<p>Setup for all: in-memory DB with 2 docs — <code>(demo/report, "Quarterly Report", body "revenue grew")</code>, <code>(misc/notes, "Meeting Notes", body "budget cuts")</code>.</p>
+<table>
+  <tr><th>Test</th><th>Input <code>q</code></th><th>Expected output</th></tr>
+  <tr><td>C1 plain term</td><td><code>"revenue"</code></td><td>1 row: <code>demo/report</code></td></tr>
+  <tr><td>C2 prefix match</td><td><code>"rev"</code></td><td>1 row: <code>demo/report</code> (prefix <code>rev*</code> works)</td></tr>
+  <tr><td>C3 FTS syntax chars</td><td><code>'"revenue" OR (budget)'</code></td><td>no throw; quotes/parens stripped before MATCH</td></tr>
+  <tr><td>C4 FTS operators</td><td><code>"NEAR/3 revenue"</code></td><td>no throw; <code>NEAR</code> treated as literal text term</td></tr>
+  <tr><td>C5 only symbols</td><td><code>"!!!"</code></td><td>falls through to unfiltered list (2 rows)</td></tr>
+  <tr><td>C6 project filter</td><td><code>q=undefined, project="misc"</code></td><td>1 row: <code>misc/notes</code></td></tr>
+  <tr><td>C7 q + project</td><td><code>q="revenue", project="misc"</code></td><td>0 rows (match is in demo)</td></tr>
+</table>
+
+<h2><span class="grp">D.</span> Unit — <code>upsertDoc()</code> / <code>getDoc()</code></h2>
+<table>
+  <tr><th>Test</th><th>Input</th><th>Expected output</th></tr>
+  <tr><td>D1 insert + read</td><td>upsert <code>(r1, demo, "T", body, created, sha1)</code></td><td><code>getDoc("r1")</code> returns row with <code>latestSha=sha1</code></td></tr>
+  <tr><td>D2 re-upsert same slug</td><td>upsert same slug again with new title + <code>sha2</code></td><td>still exactly 1 row in FTS; title and <code>latestSha</code> updated</td></tr>
+  <tr><td>D3 unknown slug</td><td><code>getDoc("nope")</code></td><td><code>undefined</code></td></tr>
+</table>
+
+<h2><span class="grp">E.</span> Unit — <code>loadConfig()</code></h2>
+<table>
+  <tr><th>Test</th><th>Input</th><th>Expected output</th></tr>
+  <tr><td>E1 no toml</td><td>empty temp dir</td><td><code>{apiPort:3000, docsPort:3001, defaultProject:"misc"}</code></td></tr>
+  <tr><td>E2 toml overrides</td><td>toml with <code>api_port=4000, project="x"</code></td><td><code>{apiPort:4000, docsPort:3001, defaultProject:"x"}</code></td></tr>
+  <tr><td>E3 env beats toml</td><td>toml <code>api_port=4000</code> + <code>PORT=5000</code></td><td><code>apiPort:5000</code></td></tr>
+</table>
+
+<h2><span class="grp">F.</span> Unit — <code>ensureVault()</code> (temp dir, real git)</h2>
+<table>
+  <tr><th>Test</th><th>Input</th><th>Expected output</th></tr>
+  <tr><td>F1 cold start</td><td>empty dir</td><td><code>docs/</code>, <code>.git</code>, <code>vault.toml</code>, <code>.gitignore</code> exist; exactly 1 commit "Initialize vault"</td></tr>
+  <tr><td>F2 idempotent</td><td>run twice</td><td>still 1 commit; no error</td></tr>
+  <tr><td>F3 keeps git identity</td><td>repo pre-configured with custom <code>user.email</code></td><td>identity unchanged, no fallback written</td></tr>
+</table>
+
+<h2><span class="grp">G.</span> API integration — upload flow (temp vault, real git, ephemeral ports)</h2>
+<table>
+  <tr><th>Test</th><th>Input</th><th>Expected output</th></tr>
+  <tr><td>G1 missing file</td><td>POST <code>/api/docs</code>, multipart without <code>file</code> field</td><td>400, error mentions <code>"file"</code></td></tr>
+  <tr><td>G2 new doc</td><td>POST file <code>report.html</code>, <code>project=demo</code>, title "Report"</td><td>201; <code>vault/docs/demo/report/index.html</code> + <code>meta.yaml</code> on disk; 1 new git commit <code>Add demo/report</code>; doc searchable via <code>GET /api/docs?q=…</code></td></tr>
+  <tr><td>G3 update same title</td><td>POST G2 again with changed HTML</td><td>200, <code>update:true</code>; same slug; git log for path has 2 commits; <code>created</code> unchanged</td></tr>
+  <tr><td>G4 cross-project slug collision</td><td>G2 in <code>demo</code>, then same title in <code>misc</code></td><td>second slug is <code>report-2</code> (not <code>report</code>)</td></tr>
+  <tr><td>G5 title default</td><td>POST without <code>title</code> field</td><td>title = filename minus <code>.html</code></td></tr>
+  <tr><td>G6 default project</td><td>POST without <code>project</code> field</td><td>lands in <code>misc</code> (config default)</td></tr>
+  <tr><td>G7 source_repo non-git</td><td><code>source_repo</code> = plain temp dir</td><td>meta has <code>source_repo_path</code>, no <code>source_repo_commit</code>, request succeeds</td></tr>
+  <tr><td>G8 source_repo git</td><td><code>source_repo</code> = temp git repo with 1 commit</td><td>meta <code>source_repo_commit</code> = that repo's HEAD sha</td></tr>
+  <tr><td>G9 identical re-upload</td><td>POST byte-identical HTML twice</td><td>second returns 200, no new commit, no crash (empty-commit catch)</td></tr>
+</table>
+
+<h2><span class="grp">H.</span> API integration — read endpoints</h2>
+<table>
+  <tr><th>Test</th><th>Input</th><th>Expected output</th></tr>
+  <tr><td>H1 get doc</td><td>GET <code>/api/docs/report</code> after G2</td><td>200, row + parsed <code>meta.yaml</code> fields</td></tr>
+  <tr><td>H2 unknown slug</td><td>GET <code>/api/docs/ghost</code></td><td>404</td></tr>
+  <tr><td>H3 versions order</td><td>GET <code>/versions</code> after 2 uploads</td><td>2 entries, newest sha first</td></tr>
+  <tr><td>H4 diff happy path</td><td>GET <code>/diff?from=&lt;sha1&gt;&amp;to=&lt;sha2&gt;</code></td><td>200, unified diff text containing changed line</td></tr>
+  <tr><td>H5 diff bad sha</td><td><code>from=abc!@#</code> or <code>from=$(touch%20x)</code></td><td>400 (regex gate, never reaches git)</td></tr>
+  <tr><td>H6 diff missing params</td><td>no <code>from</code>/<code>to</code></td><td>400</td></tr>
+  <tr><td>H7 reindex</td><td>delete <code>index.db</code> rows, POST <code>/api/reindex</code></td><td><code>{indexed: N}</code> matches on-disk docs; search works again</td></tr>
+</table>
+
+<h2><span class="grp">I.</span> Docs origin (:3001) — the security boundary</h2>
+<table>
+  <tr><th>Test</th><th>Input</th><th>Expected output</th></tr>
+  <tr><td>I1 serves doc</td><td>GET <code>/demo/report</code></td><td>200, exact uploaded HTML bytes</td></tr>
+  <tr><td>I2 CSP header</td><td>GET <code>/demo/report</code></td><td><code>Content-Security-Policy</code> = <code>default-src 'none'; script-src 'unsafe-inline'; …</code> + <code>nosniff</code></td></tr>
+  <tr><td>I3 traversal rejected</td><td>slugs like <code>..</code>, <code>a..b</code>, <code>a/b</code>, uppercase</td><td>404 (regex <code>^[a-z0-9-]+$</code>)</td></tr>
+  <tr><td>I4 bad sha</td><td><code>?sha=zzz</code></td><td>400</td></tr>
+  <tr><td>I5 unknown sha</td><td><code>?sha=&lt;40 hex zeros&gt;</code></td><td>404</td></tr>
+  <tr><td>I6 historical version</td><td><code>?sha=&lt;first-commit&gt;</code> after update</td><td>original HTML, not updated one</td></tr>
+</table>
+
+<h2><span class="grp">J.</span> CLI (spawn <code>dist/index.js</code>, mock HTTP via real server from G)</h2>
+<table>
+  <tr><th>Test</th><th>Input</th><th>Expected output</th></tr>
+  <tr><td>J1 unreadable file</td><td><code>vault add nope.html</code></td><td>exit 1, stderr "cannot read file"</td></tr>
+  <tr><td>J2 server down</td><td>any command, no server listening</td><td>exit 1, stderr "cannot reach vault server"</td></tr>
+  <tr><td>J3 add happy path</td><td><code>vault add f.html --project demo</code></td><td>exit 0, stdout "Added demo/f"; doc present server-side</td></tr>
+  <tr><td>J4 update wording</td><td>J3 twice</td><td>second run prints "Updated demo/f"</td></tr>
+  <tr><td>J5 metadata passthrough</td><td><code>--title T --model M --transcript R</code></td><td>server meta.yaml has all three</td></tr>
+  <tr><td>J6 open URL</td><td><code>vault open report</code> (browser spawn stubbed)</td><td>stdout URL has docs port 3001 and path <code>/demo/report</code></td></tr>
+</table>
+
+<h2>Wiring after approval</h2>
+<table>
+  <tr><th>Step</th><th>Verify</th></tr>
+  <tr><td>1. Refactor <code>index.ts</code> → <code>app.ts</code> + <code>util.ts</code></td><td>server still boots; typecheck green</td></tr>
+  <tr><td>2. Add vitest to <code>server</code> + <code>cli</code> workspaces; root <code>"test"</code> script</td><td><code>npm test</code> runs suites A–J</td></tr>
+  <tr><td>3. CI test job already wired (<code>npm test --if-present</code>) — starts running automatically</td><td>CI green on next push</td></tr>
+</table>
+<p>Estimated: ~45 test cases, 3–4 hours. Suites G–J need git in the test environment (CI runners have it).</p>
+
+</main>
+</body>
+</html>
