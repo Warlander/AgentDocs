@@ -1,0 +1,5 @@
+node_modules
+vault
+packages/web/dist
+packages/cli/dist
+.git

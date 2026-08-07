@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Sample Document</title>
+<style>
+  body { font-family: system-ui; background: #171717; color: #e5e5e5; display: grid; place-items: center; min-height: 100vh; margin: 0; }
+  button { background: #404040; color: #fff; border: 0; border-radius: 6px; padding: 8px 16px; cursor: pointer; }
+</style>
+</head>
+<body>
+  <main>
+    <h1>Sample vault document</h1>
+    <p>Scripts run inside the sandboxed preview.</p>
+    <button id="b">Clicks: 0</button>
+  </main>
+  <script>
+    let n = 0;
+    document.getElementById('b').addEventListener('click', e => {
+      e.target.textContent = 'Clicks: ' + (++n);
+    });
+  </script>
+</body>
+</html>

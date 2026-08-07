@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spec — Unread Document Indicators (AgentDocs Vault)</title>
+<style>
+  :root {
+    --accent: #5b9dff;
+    --unread: #f59e0b;
+  }
+  body {
+    font-family: system-ui, -apple-system, sans-serif;
+    line-height: 1.6;
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 2rem;
+    color: #e0e0e0;
+    background: #1a1a1a;
+  }
+  h1, h2, h3 { font-weight: 600; margin-top: 2.2rem; }
+  h1 { border-bottom: 2px solid #444; padding-bottom: 0.4rem; }
+  h2 { border-bottom: 1px solid #333; padding-bottom: 0.25rem; }
+  code, pre {
+    font-family: 'SF Mono', Monaco, Consolas, monospace;
+    background: rgba(128,128,128,0.15);
+    border-radius: 4px;
+    font-size: 0.9em;
+  }
+  code { padding: 0.1em 0.35em; }
+  pre { padding: 1rem; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: 0.92em; }
+  th, td { padding: 0.5rem 0.7rem; border-bottom: 1px solid #333; text-align: left; vertical-align: top; }
+  th { font-weight: 600; color: #bbb; }
+  .callout {
+    border-left: 4px solid var(--accent);
+    padding: 0.8rem 1rem;
+    margin: 1rem 0;
+    background: rgba(91,157,255,0.07);
+    border-radius: 0 6px 6px 0;
+  }
+  .callout.warn { border-left-color: var(--unread); background: rgba(245,158,11,0.07); }
+  .rec { color: #7ee787; font-weight: 600; }
+
+  /* ---- Sidebar mockups (mirror the real app's Tailwind theme) ---- */
+  .mock-row { display: flex; gap: 1.5rem; flex-wrap: wrap; margin: 1rem 0 2rem; }
+  .sidebar {
+    width: 240px;
+    background: #171717;
+    border: 1px solid #404040;
+    border-radius: 8px;
+    overflow: hidden;
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+  .sidebar .group {
+    padding: 6px 8px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #a3a3a3;
+  }
+  .sidebar .doc {
+    display: flex;
+    align-items: center;
+    padding: 4px 16px;
+    color: #d4d4d4;
+    white-space: nowrap;
+    overflow: hidden;
+    gap: 6px;
+    position: relative;
+  }
+  .sidebar .doc.sel { background: #262626; color: #fff; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--unread); flex-shrink: 0; }
+  .dot.pulse { animation: pulse 2s infinite; }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(245,158,11,0.5); }
+    50% { box-shadow: 0 0 0 4px rgba(245,158,11,0); }
+  }
+  .pill {
+    font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
+    padding: 1px 5px; border-radius: 999px; flex-shrink: 0;
+  }
+  .pill.new { background: rgba(34,197,94,0.18); color: #4ade80; }
+  .pill.upd { background: rgba(245,158,11,0.18); color: #fbbf24; }
+  .bar { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--unread); }
+  .tint { background: rgba(245,158,11,0.06); }
+  .cnt {
+    font-size: 10px; min-width: 15px; text-align: center;
+    padding: 0 4px; border-radius: 999px;
+    background: var(--unread); color: #171717; font-weight: 700;
+  }
+  .bold { font-weight: 700; color: #fff; }
+  .caption { font-size: 12px; color: #888; margin-top: 0.4rem; width: 240px; }
+  .mock-item { display: flex; flex-direction: column; }
+
+  /* favicon mock */
+  .favicon-mock { display: inline-flex; align-items: center; gap: 8px; background: #262626; border: 1px solid #404040; padding: 4px 12px; border-radius: 8px 8px 0 0; font-size: 12px; color: #ccc; }
+  .favicon-badge { background: #e5484d; color: #fff; border-radius: 50%; font-size: 9px; font-weight: 700; min-width: 14px; height: 14px; display: inline-grid; place-items: center; margin-left: -10px; margin-top: -8px; }
+</style>
+</head>
+<body>
+
+<h1>Spec — Unread Document Indicators</h1>
+<p><strong>Project:</strong> AgentDocs vault web UI (<code>packages/web/src/App.tsx</code>) · <strong>Status:</strong> proposal, awaiting option selection · <strong>Date:</strong> 2026-08-05</p>
+
+<h2>1. Goal</h2>
+<p>When documents are added or edited in the vault (typically by an agent session via <code>vault add</code>), the open UI must:</p>
+<ol>
+  <li><strong>Ping the page</strong> — surface the unread count at browser-tab level so the user notices without looking at the app.</li>
+  <li><strong>Mark unread docs in the sidebar</strong> — an indicator next to each document the user hasn't seen in its current state.</li>
+</ol>
+
+<h2>2. Defining "unread"</h2>
+<p>The vault is git-versioned: every add/update is a commit on <code>docs/&lt;project&gt;/&lt;slug&gt;</code>. Unread = <em>the doc's latest version is newer than the version the user last opened.</em></p>
+<table>
+  <tr><th>Option</th><th>Mechanism</th><th>Tradeoffs</th></tr>
+  <tr>
+    <td><strong>A. Compare versions (SHA)</strong> <span class="rec">— recommended</span></td>
+    <td>Client stores <code>lastSeenSha</code> per slug. Server exposes latest commit SHA per doc. Unread ⇔ <code>latestSha !== lastSeenSha</code>. Never-opened docs have no stored SHA → unread.</td>
+    <td>Precise: distinguishes "edited" from "new", survives timestamp edge cases. Requires one extra field in the doc list payload.</td>
+  </tr>
+  <tr>
+    <td><strong>B. Compare timestamps</strong></td>
+    <td>Server stores an <code>updated</code> ISO timestamp in SQLite at index time; client stores <code>lastSeenAt</code> per slug. Unread ⇔ <code>updated &gt; lastSeenAt</code>.</td>
+    <td>Simpler payload, but clock granularity and identical re-uploads can produce false positives/negatives.</td>
+  </tr>
+</table>
+<div class="callout">Both options need <em>some</em> server change: the current <code>GET /api/docs</code> returns only <code>{slug, project, title, created}</code>. Option A adds <code>latestSha</code> (from <code>git log -1</code>, computed at index/upload time and cached in SQLite — not per-request, to avoid N git calls).</div>
+
+<h2>3. Read-state storage</h2>
+<table>
+  <tr><th>Option</th><th>Mechanism</th><th>Tradeoffs</th></tr>
+  <tr>
+    <td><strong>A. Browser <code>localStorage</code></strong> <span class="rec">— recommended</span></td>
+    <td><code>{ "project/slug": "sha" }</code> map, written when a doc is opened. Zero server endpoints.</td>
+    <td>Single-user local app — per-browser state is fine. State lost if browser storage cleared; that's harmless (docs just appear unread again).</td>
+  </tr>
+  <tr>
+    <td><strong>B. Server-side (SQLite table)</strong></td>
+    <td><code>read_state(slug, sha)</code> + <code>POST /api/docs/:slug/seen</code>.</td>
+    <td>Survives across browsers, but adds endpoints and a migration for a single-user tool. Overkill.</td>
+  </tr>
+</table>
+<p><strong>Mark-as-read trigger:</strong> opening a doc in the main pane (existing <code>select()</code> handler). A "mark all as read" affordance is an optional extra — see §7.</p>
+
+<h2>4. Page ping — tab-level unread count</h2>
+<table>
+  <tr><th>Option</th><th>Mechanism</th><th>Tradeoffs</th></tr>
+  <tr>
+    <td><strong>A. Title prefix</strong> <span class="rec">— recommended (with B)</span></td>
+    <td><code>document.title = `(3) AgentDocs Vault`</code> when unread &gt; 0.</td>
+    <td>~3 lines. Visible in tab strip and taskbar. Standard pattern (Slack, Gmail).</td>
+  </tr>
+  <tr>
+    <td><strong>B. Favicon badge</strong> <span class="rec">— recommended (with A)</span></td>
+    <td>Redraw favicon on a canvas with a red count bubble; swap the <code>&lt;link rel="icon"&gt;</code> href.</td>
+    <td>~25 lines, no deps. Catches the eye even with a pinned/narrow tab where the title is hidden.</td>
+  </tr>
+  <tr>
+    <td><strong>C. Audible ping / toast</strong></td>
+    <td>Play a sound or show an in-app toast when unread count <em>increases</em> while the tab is open.</td>
+    <td>"Ping" read literally. Sound requires prior user interaction (autoplay policy) and can annoy. Suggest skipping unless wanted.</td>
+  </tr>
+</table>
+<div class="favicon-mock">📄 <span>AgentDocs Vault</span><span class="favicon-badge">3</span>&nbsp;&nbsp;·&nbsp;&nbsp;(3) AgentDocs Vault</div>
+<p class="caption" style="width:auto">Mock: favicon badge + title prefix together.</p>
+
+<h2>5. Sidebar unread indicator — visual options</h2>
+<p>All mockups below use the app's actual dark theme (<code>bg-neutral-900</code> sidebar family). Amber is used as the unread color — distinct from the existing blue/neutral palette, and reads as "attention" without implying error.</p>
+
+<h3>Option 1 — Accent dot</h3>
+<div class="mock-row">
+  <div class="mock-item">
+    <div class="sidebar">
+      <div class="group">▾ AgentDocs (4)</div>
+      <div class="doc"><span class="dot"></span>Vault CLI design</div>
+      <div class="doc"><span class="dot"></span>Unread indicator spec</div>
+      <div class="doc sel">Architecture overview</div>
+      <div class="doc">Git workflow notes</div>
+    </div>
+    <div class="caption">Small dot before the title. Selected doc stays as-is.</div>
+  </div>
+  <div>
+    <p><strong>Pros:</strong> minimal, unobtrusive, ~4 lines of JSX/CSS, scales to long titles (dot never truncates).</p>
+    <p><strong>Cons:</strong> subtle — easy to miss; doesn't distinguish new vs updated.</p>
+    <p><strong>Variant:</strong> pulsing dot for docs that became unread <em>while the tab was open</em> (animation only on change, steady dot otherwise):</p>
+    <div class="sidebar" style="width:240px">
+      <div class="doc"><span class="dot pulse"></span>Just updated by agent</div>
+      <div class="doc"><span class="dot"></span>Unread from before</div>
+    </div>
+  </div>
+</div>
+
+<h3>Option 2 — NEW / UPDATED pill</h3>
+<div class="mock-row">
+  <div class="mock-item">
+    <div class="sidebar">
+      <div class="group">▾ AgentDocs (4)</div>
+      <div class="doc">Vault CLI design <span class="pill upd">UPD</span></div>
+      <div class="doc">Unread indicator spec <span class="pill new">NEW</span></div>
+      <div class="doc sel">Architecture overview</div>
+      <div class="doc">Git workflow notes</div>
+    </div>
+    <div class="caption">Green NEW for never-opened, amber UPD for edited-since-seen.</div>
+  </div>
+  <div>
+    <p><strong>Pros:</strong> communicates <em>why</em> it's unread (new vs edited) — matches the feature's wording ("recently added or edited").</p>
+    <p><strong>Cons:</strong> noisiest option; pills eat title space in a 240px sidebar; requires distinguishing "never seen" from "seen old version" (Option A in §2 handles this naturally: no stored SHA → NEW).</p>
+  </div>
+</div>
+
+<h3>Option 3 — Left accent bar + bold title</h3>
+<div class="mock-row">
+  <div class="mock-item">
+    <div class="sidebar">
+      <div class="group">▾ AgentDocs (4)</div>
+      <div class="doc"><span class="bar"></span><span class="bold">Vault CLI design</span></div>
+      <div class="doc"><span class="bar"></span><span class="bold">Unread indicator spec</span></div>
+      <div class="doc sel">Architecture overview</div>
+      <div class="doc">Git workflow notes</div>
+    </div>
+    <div class="caption">Amber edge bar on the row + bold white title (VS Code / Discord style).</div>
+  </div>
+  <div>
+    <p><strong>Pros:</strong> highly visible without any glyph; scanning a long list is fast (bars align vertically).</p>
+    <p><strong>Cons:</strong> bold text shifts layout slightly (title width changes when read); two visual changes where one may do.</p>
+  </div>
+</div>
+
+<h3>Option 4 — Row background tint</h3>
+<div class="mock-row">
+  <div class="mock-item">
+    <div class="sidebar">
+      <div class="group">▾ AgentDocs (4)</div>
+      <div class="doc tint">Vault CLI design</div>
+      <div class="doc tint">Unread indicator spec</div>
+      <div class="doc sel">Architecture overview</div>
+      <div class="doc">Git workflow notes</div>
+    </div>
+    <div class="caption">Subtle amber wash on unread rows.</div>
+  </div>
+  <div>
+    <p><strong>Pros:</strong> no extra elements at all; trivial CSS class.</p>
+    <p><strong>Cons:</strong> can read as a hover/selection state and confuse the existing selected-row highlight (<code>bg-neutral-800</code>); weakest signal of the set.</p>
+  </div>
+</div>
+
+<h3>Option 5 — Unread count on project group headers</h3>
+<div class="mock-row">
+  <div class="mock-item">
+    <div class="sidebar">
+      <div class="group" style="display:flex;align-items:center;gap:6px">▾ AgentDocs (4) <span class="cnt">2</span></div>
+      <div class="doc"><span class="dot"></span>Vault CLI design</div>
+      <div class="doc"><span class="dot"></span>Unread indicator spec</div>
+      <div class="doc sel">Architecture overview</div>
+      <div class="doc">Git workflow notes</div>
+      <div class="group">▾ Other-project (3)</div>
+    </div>
+    <div class="caption">Count chip in group header; compose with any per-doc option.</div>
+  </div>
+  <div>
+    <p><strong>Pros:</strong> signals unread inside <em>collapsed</em> groups (dot/pill/bar are invisible when a group is folded). This is a real gap: <code>ProjectGroup</code> defaults open but can be collapsed.</p>
+    <p><strong>Cons:</strong> not a per-doc indicator by itself — strictly a complement to options 1–4.</p>
+  </div>
+</div>
+
+<h3>Comparison</h3>
+<table>
+  <tr><th>Option</th><th>Visibility</th><th>Noise</th><th>New vs edited</th><th>Works in collapsed group</th><th>Effort</th></tr>
+  <tr><td>1. Dot</td><td>Medium</td><td>Low</td><td>No</td><td>No</td><td>XS</td></tr>
+  <tr><td>2. NEW/UPD pill</td><td>High</td><td>High</td><td><strong>Yes</strong></td><td>No</td><td>S</td></tr>
+  <tr><td>3. Bar + bold</td><td>High</td><td>Medium</td><td>No</td><td>No</td><td>S</td></tr>
+  <tr><td>4. Row tint</td><td>Low</td><td>Low</td><td>No</td><td>No</td><td>XS</td></tr>
+  <tr><td>5. Group count</td><td colspan="2">complement</td><td>No</td><td><strong>Yes</strong></td><td>XS</td></tr>
+</table>
+<div class="callout"><span class="rec">Recommendation:</span> <strong>Option 1 (dot) + Option 5 (group count)</strong> as the minimal quiet set, with the pulse variant for live updates. Choose <strong>Option 2</strong> instead of the dot if distinguishing "added" from "edited" matters — it's the only option that carries that information.</div>
+
+<h2>6. Freshness / live updates</h2>
+<div class="callout warn"><strong>Observed issue:</strong> a document added via <code>vault add</code> while the UI is open does not appear until a full page refresh — <code>load()</code> only re-runs when the search query or project filter changes. This is a standing gap independent of unread indicators, and the fix below resolves both at once.</div>
+<p>Unread state depends on detecting changes while the page is open. Current <code>load()</code> runs only on search/filter change.</p>
+<table>
+  <tr><th>Option</th><th>Mechanism</th><th>Tradeoffs</th></tr>
+  <tr>
+    <td><strong>A. Poll <code>GET /api/docs</code></strong> <span class="rec">— recommended</span></td>
+    <td><code>setInterval</code> every ~5s reuses the existing <code>load()</code>. Diff <code>latestSha</code> values against previous fetch to detect "changed while open" (drives the pulse + optional toast).</td>
+    <td>Local single-user server; a 5s poll of an in-memory SQLite query is free. No new infra.</td>
+  </tr>
+  <tr>
+    <td><strong>B. SSE / WebSocket push</strong></td>
+    <td>Server emits an event on each upload.</td>
+    <td>Instant, but a persistent connection and event plumbing for a local tool — disproportionate.</td>
+  </tr>
+</table>
+
+<h2>7. Scope decisions needed</h2>
+<ul>
+  <li><strong>Indicator style:</strong> pick from §5 (recommendation: dot + group count, or pills).</li>
+  <li><strong>Ping:</strong> title prefix + favicon badge assumed; confirm or adjust (audible ping? in-app toast on live change?).</li>
+  <li><strong>Mark-all-read button:</strong> in scope? (One line in the sidebar header; without it, clearing 20 unread docs means opening each.)</li>
+  <li><strong>Collapse-aware groups:</strong> auto-expand groups containing unread docs on load, or rely on the group count chip?</li>
+  <li><strong>Viewing an old version counts as read?</strong> Proposal: any open of the doc marks the <em>latest</em> SHA as seen, regardless of the <code>?sha=</code> being viewed.</li>
+</ul>
+
+<h2>8. Implementation sketch (post-decision)</h2>
+<p>Assuming recommended options (SHA compare, localStorage, title + favicon ping, dot + group count, 5s poll):</p>
+<ol>
+  <li><code>server/db.ts</code> — add <code>latest_sha</code> column to FTS table (or a side table); populate in <code>upsertDoc</code> from git; migration = <code>POST /api/reindex</code>.</li>
+  <li><code>server/index.ts</code> — pass latest SHA into <code>indexDoc</code> at upload; no new endpoints.</li>
+  <li><code>web/App.tsx</code> —
+    <ol>
+      <li><code>seenRef</code>: localStorage map <code>project/slug → sha</code>, loaded once.</li>
+      <li>Poll <code>load()</code> every 5s; compute unread set from <code>latestSha !== seen[slug]</code>.</li>
+      <li><code>select()</code> writes the doc's latest SHA to the map → indicator clears.</li>
+      <li>Title prefix + favicon badge effect driven by <code>unread.size</code>.</li>
+      <li>Dot in doc row, count chip in <code>ProjectGroup</code> header; pulse class on docs whose SHA changed since previous poll.</li>
+    </ol>
+  </li>
+</ol>
+<p>Estimated footprint: ~15 lines server, ~70 lines client, no new dependencies.</p>
+
+</body>
+</html>
