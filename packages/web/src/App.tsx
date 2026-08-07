@@ -16,6 +16,13 @@ interface Version {
   message: string;
 }
 
+interface Settings {
+  vaultDir: string;
+  defaultProject: string;
+  gitUserName: string;
+  gitUserEmail: string;
+}
+
 const docKey = (d: { project: string; slug: string }) => `${d.project}/${d.slug}`;
 
 const SEEN_KEY = 'agentdocs-seen';
@@ -73,8 +80,14 @@ export default function App() {
   const [diffView, setDiffView] = useState('');
   const [docsPort, setDocsPort] = useState(3001);
   const [seen, setSeen] = useState<Record<string, string>>(loadSeen);
+  const [defaultProject, setDefaultProject] = useState('misc');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settings, setSettings] = useState<Settings | null>(null);
+  const [settingsError, setSettingsError] = useState('');
+  const [notice, setNotice] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const settingsOrig = useRef<Settings | null>(null);
   const loadRef = useRef<() => void>(() => {});
   const prevShas = useRef(new Map<string, string | null>());
 
@@ -128,7 +141,14 @@ export default function App() {
 
   useEffect(() => {
     fetch('/api/config').then(r => r.json()).then(c => setDocsPort(c.docsPort));
+    fetch('/api/settings').then(r => r.json()).then((s: Settings) => setDefaultProject(s.defaultProject));
   }, []);
+
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(''), 4000);
+    return () => clearTimeout(t);
+  }, [notice]);
 
   useEffect(() => {
     const t = setTimeout(() => load(q, project), 200);
@@ -170,7 +190,7 @@ export default function App() {
   };
 
   const upload = async (file: File) => {
-    const proj = prompt('Project name:', project || 'misc');
+    const proj = prompt('Project name:', project || defaultProject);
     if (proj === null) return;
     const form = new FormData();
     form.append('file', file);
@@ -179,12 +199,54 @@ export default function App() {
     await load(q, project);
   };
 
+  const openSettings = async () => {
+    setSettingsError('');
+    const res = await fetch('/api/settings');
+    const s: Settings = await res.json();
+    settingsOrig.current = s;
+    setSettings(s);
+    setSettingsOpen(true);
+  };
+
+  const saveSettings = async () => {
+    if (!settings) return;
+    const post = (body: Record<string, string>) =>
+      fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    // vaultDir swaps the vault server-side, so it must be sent on its own —
+    // the other fields then apply to the new vault.
+    if (settings.vaultDir !== settingsOrig.current?.vaultDir) {
+      const res = await post({ vaultDir: settings.vaultDir });
+      if (!res.ok) {
+        setSettingsError((await res.json()).error ?? 'failed to change vault location');
+        return;
+      }
+      const { swapped } = await res.json();
+      if (swapped) {
+        setSelected(null);
+        setNotice('Vault location changed');
+      }
+    }
+    await post({
+      defaultProject: settings.defaultProject,
+      gitUserName: settings.gitUserName,
+      gitUserEmail: settings.gitUserEmail,
+    });
+    setDefaultProject(settings.defaultProject);
+    setSettingsOpen(false);
+    setSettings(null);
+    await load(q, project);
+  };
+
   const grouped = useMemo(() => {
     const map = new Map<string, Doc[]>();
     for (const d of [...docs].sort((a, b) => b.created.localeCompare(a.created))) {
       map.set(d.project, [...(map.get(d.project) ?? []), d]);
     }
-    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    return [...map.entries()].sort((a, b) => b[1][0].created.localeCompare(a[1][0].created));
   }, [docs]);
 
   const projects = useMemo(() => [...new Set(docs.map(d => d.project))].sort(), [docs]);
@@ -215,6 +277,13 @@ export default function App() {
               className="bg-neutral-700 hover:bg-neutral-600 rounded px-3"
             >
               Upload
+            </button>
+            <button
+              onClick={openSettings}
+              title="Settings"
+              className="bg-neutral-700 hover:bg-neutral-600 rounded px-2"
+            >
+              ⚙
             </button>
             <input
               ref={fileRef}
@@ -304,6 +373,61 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {notice && (
+        <div className="fixed bottom-4 right-4 bg-neutral-700 rounded px-3 py-2 shadow-lg">
+          {notice}
+        </div>
+      )}
+
+      {settingsOpen && settings && (
+        <div
+          className="fixed inset-0 bg-black/60 grid place-items-center"
+          onClick={() => setSettingsOpen(false)}
+        >
+          <div
+            className="bg-neutral-800 rounded p-4 w-96 space-y-3"
+            onClick={e => e.stopPropagation()}
+          >
+            <h2 className="font-medium">Settings</h2>
+            {([
+              ['vaultDir', 'Vault location'],
+              ['defaultProject', 'Default project'],
+              ['gitUserName', 'Git user name'],
+              ['gitUserEmail', 'Git user email'],
+            ] as const).map(([key, label]) => (
+              <label key={key} className="block text-xs text-neutral-400">
+                {label}
+                <input
+                  value={settings[key]}
+                  onChange={e => setSettings({ ...settings, [key]: e.target.value })}
+                  className="mt-1 w-full bg-neutral-900 rounded px-2 py-1 text-sm text-neutral-200 outline-none focus:ring-1 ring-neutral-500"
+                />
+              </label>
+            ))}
+            {settings.vaultDir !== settingsOrig.current?.vaultDir && (
+              <p className="text-xs text-amber-400">
+                Changing vault location switches immediately — documents stay in their current vault.
+              </p>
+            )}
+            {settingsError && <p className="text-xs text-red-400">{settingsError}</p>}
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                onClick={() => setSettingsOpen(false)}
+                className="bg-neutral-700 hover:bg-neutral-600 rounded px-3 py-1"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveSettings}
+                className="bg-neutral-600 hover:bg-neutral-500 rounded px-3 py-1"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
