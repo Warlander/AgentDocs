@@ -45,5 +45,8 @@ describe('ensureVault', () => {
     await ensureVault(dir);
     const { stdout } = await execa('git', ['-C', dir, 'config', 'user.email']);
     expect(stdout).toBe('custom@example.com');
+    // name may come from global config locally or the Vault fallback on CI
+    const { stdout: name } = await execa('git', ['-C', dir, 'config', 'user.name']);
+    expect(name).toBeTruthy();
   });
 });

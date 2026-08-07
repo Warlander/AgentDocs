@@ -15,10 +15,12 @@ export async function ensureVault(vaultDir: string) {
   if (!existsSync(path.join(vaultDir, '.git'))) {
     await git(vaultDir, ['init']);
   }
-  try {
-    await git(vaultDir, ['config', 'user.email']);
-  } catch {
+  const hasConfig = async (key: string) =>
+    git(vaultDir, ['config', key]).then(() => true, () => false);
+  if (!(await hasConfig('user.name'))) {
     await git(vaultDir, ['config', 'user.name', 'Vault']);
+  }
+  if (!(await hasConfig('user.email'))) {
     await git(vaultDir, ['config', 'user.email', 'vault@localhost']);
   }
   if (!existsSync(path.join(vaultDir, 'vault.toml'))) {
