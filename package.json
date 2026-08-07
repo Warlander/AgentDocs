@@ -11,6 +11,7 @@
     "dev": "concurrently -n server,web \"npm run dev -w server\" \"npm run dev -w web\"",
     "build": "npm run build -w web && npm run build -w vault-cli",
     "start": "npm run start -w server",
+    "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck -w server && npm run typecheck -w vault-cli && npm run typecheck -w web"
   },
   "devDependencies": {

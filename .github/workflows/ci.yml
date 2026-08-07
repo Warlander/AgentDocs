@@ -20,5 +20,4 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
-      # No-op until a root "test" script exists (see docs/test-plan)
-      - run: npm test --if-present
+      - run: npm test

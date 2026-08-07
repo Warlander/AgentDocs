@@ -34,7 +34,7 @@ const LIST_SQL = `SELECT docs.slug, docs.project, docs.title, docs.created, doc_
 export function listDocs(db: Db, q?: string, project?: string): DocRow[] {
   if (q) {
     const match = q.split(/\s+/)
-      .map(t => t.replace(/[^\p{L}\p{N}_]/gu, ''))
+      .map(t => t.replace(/[^\p{L}\p{N}_]/gu, '').toLowerCase())
       .filter(Boolean)
       .map(t => `${t}*`)
       .join(' ');

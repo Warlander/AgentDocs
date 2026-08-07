@@ -23,6 +23,7 @@ async function api(path: string, init?: RequestInit): Promise<Response> {
 }
 
 function openBrowser(url: string) {
+  if (process.env.VAULT_NO_BROWSER) return;
   const cmd = process.platform === 'win32' ? 'cmd' : process.platform === 'darwin' ? 'open' : 'xdg-open';
   const args = process.platform === 'win32' ? ['/c', 'start', '""', url] : [url];
   spawn(cmd, args, { detached: true, stdio: 'ignore' }).unref();
