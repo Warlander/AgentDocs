@@ -134,6 +134,7 @@ export default function App() {
       if (prev !== undefined && cur.latestSha !== prev) {
         setSha('');
         markSeen(cur);
+        fetch(`/api/docs/${cur.slug}/versions`).then(r => r.json()).then(setVersions);
       }
     }
     prevShas.current = new Map(docs.map(d => [docKey(d), d.latestSha]));
@@ -359,7 +360,7 @@ export default function App() {
               <div className="flex-1 overflow-auto bg-white" dangerouslySetInnerHTML={{ __html: diffView }} />
             ) : (
               <iframe
-                key={`${selected.slug}:${sha}`}
+                key={`${selected.slug}:${sha || docs.find(d => docKey(d) === docKey(selected))?.latestSha || ''}`}
                 sandbox="allow-scripts"
                 src={`${origin}/${selected.project}/${selected.slug}${sha ? `?sha=${sha}` : ''}`}
                 className="flex-1 bg-white"

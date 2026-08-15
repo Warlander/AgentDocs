@@ -34,6 +34,31 @@ docker compose up --build   # UI+API on localhost:3000, docs origin on :3001
 Vault persisted at `./vault` on the host (git repo, human-navigable).
 Git identity via env: `GIT_USER_NAME` / `GIT_USER_EMAIL`.
 
+## Configuration
+
+Open the settings window via the ⚙ button in the UI to change:
+
+- **Vault location** — the git repo where documents live. Applies immediately
+  (no restart): the server initializes the new directory if needed and reindexes
+  it. Documents are not copied — old ones stay in the old vault.
+- **Default project** — fallback when an upload names no project.
+- **Git identity** — `user.name` / `user.email` for vault commits.
+
+Vault location is resolved in this order:
+
+1. `VAULT_DIR` env var
+2. `agentdocs.toml` (`[vault] dir`) — written by the settings window
+3. `<repo>/vault` (bare metal) or `/vault` (Docker)
+
+`agentdocs.toml` lives next to the repo (override with `APP_CONFIG`). It must sit
+outside the vault, since `vault.toml` is inside the vault and cannot point at
+itself. Ports come from `vault.toml` (`[server]`) or `PORT` / `DOCS_PORT` env
+vars and are bound once at startup — changing them requires a restart.
+
+> **Docker note:** `agentdocs.toml` is written to the container filesystem and
+> does not survive container recreation. Prefer changing the `./vault:/vault`
+> bind mount in `docker-compose.yml` for a permanent move.
+
 > **Security: no authentication.** Anyone who can reach the API port can upload
 > and read documents. The bare-metal server binds `127.0.0.1`, but the Docker
 > setup binds `0.0.0.0` — only run it on networks you fully trust. Never expose

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -16,6 +16,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  apps.stop();
   apps.db.close();
   await rm(dir, { recursive: true, force: true });
 });
@@ -159,4 +160,21 @@ describe('read endpoints', () => {
     const found = await (await apps.api.request('/api/docs?q=revenue')).json();
     expect(found).toHaveLength(1);
   });
+});
+
+describe('vault watcher', () => {
+  it('reindexes after an external commit', async () => {
+    await postDoc({ project: 'demo', title: 'Report' });
+    writeFileSync(path.join(dir, 'docs/demo/report/index.html'), '<p>external</p>');
+    await execa('git', ['-C', dir, 'add', '.']);
+    await execa('git', ['-C', dir, 'commit', '-m', 'external update']);
+    const deadline = Date.now() + 8000;
+    let found: unknown[] = [];
+    while (Date.now() < deadline) {
+      found = await (await apps.api.request('/api/docs?q=external')).json();
+      if (found.length) return;
+      await new Promise(r => setTimeout(r, 300));
+    }
+    expect(found).toHaveLength(1);
+  }, 10000);
 });

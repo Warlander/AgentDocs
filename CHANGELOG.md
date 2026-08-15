@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Settings API: read/update vault directory (with live vault swap), default project, and git identity
+
+### Fixed
+
+- Open document now reloads automatically when a new version is pushed; version dropdown refreshes too
+- External commits pushed directly into the vault git repo are now detected and indexed automatically
+
 ### Changed
 
 - Projects in the docs list are now ordered by most recent document instead of alphabetically

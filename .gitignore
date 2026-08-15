@@ -3,4 +3,5 @@ dist/
 vault/
 docs/
 design/
+agentdocs.toml
 *.tsbuildinfo

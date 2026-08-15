@@ -1,12 +1,14 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { Hono } from 'hono';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { execa } from 'execa';
 import { parse as parseYaml, stringify as toYaml } from 'yaml';
+import { parse as parseToml, stringify as toToml } from 'smol-toml';
 import { loadConfig, type VaultConfig } from './config.js';
 import { clearDocs, getDoc, listDocs, openDb, upsertDoc, type Db } from './db.js';
 import { git } from './git.js';
+import { saveVaultDir } from './settings.js';
 import { ensureVault } from './vault.js';
 import { slugify, stripHtml } from './util.js';
 
@@ -15,9 +17,15 @@ export interface Apps {
   docsApp: Hono;
   config: VaultConfig;
   db: Db;
+  reindex: () => Promise<number>;
+  stop: () => void;
 }
 
-export async function createApps(vaultDir: string): Promise<Apps> {
+export interface Hooks {
+  onVaultDirChanged?: (dir: string) => Promise<void>;
+}
+
+export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<Apps> {
   await ensureVault(vaultDir);
   const config = loadConfig(vaultDir);
   const db = openDb(path.join(vaultDir, 'index.db'));
@@ -49,12 +57,61 @@ export async function createApps(vaultDir: string): Promise<Apps> {
 
   api.get('/api/config', c => c.json({ docsPort: config.docsPort }));
 
+  api.get('/api/settings', async c => {
+    const gitConfig = async (key: string) =>
+      git(vaultDir, ['config', key]).then(r => r.stdout.trim(), () => '');
+    return c.json({
+      vaultDir,
+      defaultProject: loadConfig(vaultDir).defaultProject,
+      gitUserName: await gitConfig('user.name'),
+      gitUserEmail: await gitConfig('user.email'),
+    });
+  });
+
+  api.post('/api/settings', async c => {
+    // vaultDir swaps to a new vault; other fields still target THIS vault's
+    // vault.toml/git config — clients changing vaultDir should send it alone.
+    const body = await c.req.json();
+    let swapped = false;
+
+    if (body.vaultDir !== undefined) {
+      const dir = path.resolve(String(body.vaultDir));
+      if (existsSync(dir) && !statSync(dir).isDirectory()) {
+        return c.json({ error: 'vaultDir exists and is not a directory' }, 400);
+      }
+      if (dir !== vaultDir) {
+        saveVaultDir(dir);
+        if (hooks.onVaultDirChanged) {
+          await hooks.onVaultDirChanged(dir);
+          swapped = true;
+        }
+      }
+    }
+
+    if (body.defaultProject !== undefined) {
+      const project = slugify(String(body.defaultProject)) || 'misc';
+      const file = path.join(vaultDir, 'vault.toml');
+      const cfg: any = existsSync(file) ? parseToml(readFileSync(file, 'utf8')) : {};
+      cfg.defaults = { ...(cfg.defaults as object), project };
+      writeFileSync(file, toToml(cfg));
+    }
+
+    if (body.gitUserName !== undefined) {
+      await git(vaultDir, ['config', 'user.name', String(body.gitUserName)]);
+    }
+    if (body.gitUserEmail !== undefined) {
+      await git(vaultDir, ['config', 'user.email', String(body.gitUserEmail)]);
+    }
+
+    return c.json({ swapped });
+  });
+
   api.post('/api/docs', async c => {
     const body = await c.req.parseBody();
     const file = body['file'];
     if (!(file instanceof File)) return c.json({ error: 'multipart field "file" required' }, 400);
 
-    const project = slugify(String(body['project'] || config.defaultProject));
+    const project = slugify(String(body['project'] || loadConfig(vaultDir).defaultProject));
     const title = String(body['title'] || file.name.replace(/\.html?$/i, ''));
     let slug = slugify(title);
     const html = await file.text();
@@ -126,7 +183,7 @@ export async function createApps(vaultDir: string): Promise<Apps> {
     return c.text(stdout);
   });
 
-  api.post('/api/reindex', async c => {
+  async function reindexVault() {
     clearDocs(db);
     let count = 0;
     const root = path.join(vaultDir, 'docs');
@@ -139,8 +196,24 @@ export async function createApps(vaultDir: string): Promise<Apps> {
         count++;
       }
     }
-    return c.json({ indexed: count });
-  });
+    return count;
+  }
+
+  api.post('/api/reindex', async c => c.json({ indexed: await reindexVault() }));
+
+  // Detect external commits (e.g. git push into the vault repo) and reindex
+  let lastSha: string | null = null;
+  const pollHead = async () => {
+    try {
+      const { stdout } = await git(vaultDir, ['rev-parse', 'HEAD']);
+      const sha = stdout.trim();
+      if (lastSha !== null && sha !== lastSha) await reindexVault();
+      lastSha = sha;
+    } catch { /* vault repo temporarily unreadable */ }
+  };
+  await pollHead();
+  const watchTimer = setInterval(pollHead, 2000);
+  watchTimer.unref?.();
 
   const webDist = process.env.WEB_DIST ?? path.join(import.meta.dirname, '..', 'web', 'dist');
   if (existsSync(webDist)) {
@@ -154,6 +227,7 @@ export async function createApps(vaultDir: string): Promise<Apps> {
   const docsApp = new Hono();
   const DOC_HEADERS = {
     'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-store',
     'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; font-src data:",
     'X-Content-Type-Options': 'nosniff',
   };
@@ -178,5 +252,5 @@ export async function createApps(vaultDir: string): Promise<Apps> {
     return new Response(html, { headers: { ...DOC_HEADERS } });
   });
 
-  return { api, docsApp, config, db };
+  return { api, docsApp, config, db, reindex: reindexVault, stop: () => clearInterval(watchTimer) };
 }
