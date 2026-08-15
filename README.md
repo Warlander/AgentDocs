@@ -3,7 +3,13 @@
 Local vault for AI-generated single-file HTML documents. Plain git-versioned
 directory + web UI + CLI. Fully offline after install.
 
-<!-- screenshot -->
+## Why?
+
+Personally, when using LLM's for software development, brainstorming and research I like output to be shown in a form of HTML pages - unlike Markdown, HTML can be pretty much anything and is able to adapt to any need easier. I can parse documents in my head faster and more efficiently, ensure alignment by comparing visual mockups with image in my head, see what's important at the first glance as it sticks out far more than with Markdown. However, this brings some problems - handling and keeping track of documents can get messy, and that's why this app exists. It keeps track of all the current and historical versions of docs, and keeps them neatly organized by project and easily accessible. There are multiple ways to handle agentic documentation, and that's what currently works for my use case.
+
+I will likely keep building on top of it over time according to my needs - however, it's definitely a small side project that exists just so I can focus on what's actually important (aka actual main projects), but given it may be useful to someone with the same use case as me I decided to publish it. :)
+
+<img width="2559" height="1340" alt="image" src="https://github.com/user-attachments/assets/5f54aeee-8c6d-41a3-907d-264dad4d13fe" />
 
 ## Requirements
 
