@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Docker container now restarts automatically on boot (`unless-stopped`)
 - Projects in the docs list are now ordered by most recent document instead of alphabetically
 
 ## [0.1.1] - 2026-08-07
