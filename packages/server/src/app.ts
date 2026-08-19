@@ -150,6 +150,8 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
     await git(vaultDir, ['add', `docs/${project}/${slug}`]);
     try {
       await git(vaultDir, ['commit', '-m', details ? `${subject}\n\n${details}` : subject]);
+      // Own commit — sync the watcher so pollHead doesn't fire a full reindex
+      lastSha = (await git(vaultDir, ['rev-parse', 'HEAD'])).stdout.trim();
     } catch { /* identical re-upload — nothing to commit */ }
 
     await indexDoc(project, slug, title, created, html);
@@ -193,32 +195,49 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
   });
 
   async function reindexVault() {
-    clearDocs(db);
-    let count = 0;
     const root = path.join(vaultDir, 'docs');
+    const rows: (Parameters<typeof upsertDoc>[1])[] = [];
     for (const project of readdirSync(root)) {
       for (const slug of readdirSync(path.join(root, project))) {
         const htmlFile = path.join(root, project, slug, 'index.html');
         if (!existsSync(htmlFile)) continue;
         const meta = readMeta(project, slug);
-        await indexDoc(project, slug, meta?.title ?? slug, meta?.created ?? '', readFileSync(htmlFile, 'utf8'));
-        count++;
+        const versions = await docVersions(project, slug);
+        rows.push({
+          slug, project,
+          title: meta?.title ?? slug,
+          created: meta?.created ?? '',
+          body: stripHtml(readFileSync(htmlFile, 'utf8')),
+          latestSha: versions[0]?.sha ?? null,
+        });
       }
     }
-    return count;
+    // Atomic swap: slow git/file work happens above; the clear+reinsert is a
+    // single sync transaction so readers never see a partial index
+    db.transaction(() => {
+      clearDocs(db);
+      for (const row of rows) upsertDoc(db, row);
+    })();
+    return rows.length;
   }
 
   api.post('/api/reindex', async c => c.json({ indexed: await reindexVault() }));
 
-  // Detect external commits (e.g. git push into the vault repo) and reindex
+  // Detect external commits (e.g. git push into the vault repo) and reindex.
+  // Own commits (POST /api/docs) update lastSha directly so they don't trigger
+  // a full reindex — the upload already indexed the doc itself.
   let lastSha: string | null = null;
+  let pollBusy = false;
   const pollHead = async () => {
+    if (pollBusy) return; // never stack overlapping git spawns
+    pollBusy = true;
     try {
       const { stdout } = await git(vaultDir, ['rev-parse', 'HEAD']);
       const sha = stdout.trim();
       if (lastSha !== null && sha !== lastSha) await reindexVault();
       lastSha = sha;
     } catch { /* vault repo temporarily unreadable */ }
+    finally { pollBusy = false; }
   };
   await pollHead();
   const watchTimer = setInterval(pollHead, 2000);
