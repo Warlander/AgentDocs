@@ -162,6 +162,48 @@ describe('read endpoints', () => {
   });
 });
 
+describe('PATCH /api/docs/:slug', () => {
+  const patch = (slug: string, body: unknown) =>
+    apps.api.request(`/api/docs/${slug}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+  beforeEach(async () => {
+    await postDoc({ project: 'demo', title: 'Report' });
+  });
+
+  it('toggles favorite on and off', async () => {
+    const res = await patch('report', { favorite: true });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ slug: 'report', favorite: true });
+
+    const list = await (await apps.api.request('/api/docs')).json();
+    expect(list[0].favorite).toBe(true);
+
+    await patch('report', { favorite: false });
+    const after = await (await apps.api.request('/api/docs')).json();
+    expect(after[0].favorite).toBe(false);
+  });
+
+  it('favorite survives reindex', async () => {
+    await patch('report', { favorite: true });
+    await apps.reindex();
+    const list = await (await apps.api.request('/api/docs')).json();
+    expect(list[0].favorite).toBe(true);
+  });
+
+  it('404s unknown slug', async () => {
+    expect((await patch('ghost', { favorite: true })).status).toBe(404);
+  });
+
+  it('400s when favorite is not a boolean', async () => {
+    expect((await patch('report', {})).status).toBe(400);
+    expect((await patch('report', { favorite: 'yes' })).status).toBe(400);
+  });
+});
+
 describe('vault watcher', () => {
   it('reindexes after an external commit', async () => {
     await postDoc({ project: 'demo', title: 'Report' });

@@ -8,6 +8,7 @@ interface Doc {
   title: string;
   created: string;
   latestSha: string | null;
+  favorite: boolean;
 }
 
 interface Version {
@@ -26,6 +27,9 @@ interface Settings {
 const docKey = (d: { project: string; slug: string }) => `${d.project}/${d.slug}`;
 
 const SEEN_KEY = 'agentdocs-seen';
+const SIDEBAR_KEY = 'agentdocs-sidebar-width';
+const SIDEBAR_MIN = 160;
+const SIDEBAR_MAX = 600;
 
 function loadSeen(): Record<string, string> {
   try {
@@ -71,7 +75,6 @@ function drawFavicon(unread: number) {
 export default function App() {
   const [docs, setDocs] = useState<Doc[]>([]);
   const [q, setQ] = useState('');
-  const [project, setProject] = useState('');
   const [selected, setSelected] = useState<Doc | null>(null);
   const [versions, setVersions] = useState<Version[]>([]);
   const [sha, setSha] = useState('');
@@ -80,25 +83,27 @@ export default function App() {
   const [diffView, setDiffView] = useState('');
   const [docsPort, setDocsPort] = useState(3001);
   const [seen, setSeen] = useState<Record<string, string>>(loadSeen);
-  const [defaultProject, setDefaultProject] = useState('misc');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [settingsError, setSettingsError] = useState('');
   const [notice, setNotice] = useState('');
+  const [sidebarW, setSidebarW] = useState(() => {
+    const v = Number(localStorage.getItem(SIDEBAR_KEY));
+    return v >= SIDEBAR_MIN && v <= SIDEBAR_MAX ? v : 256;
+  });
+  const [dragging, setDragging] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
   const settingsOrig = useRef<Settings | null>(null);
   const loadRef = useRef<() => void>(() => {});
   const prevShas = useRef(new Map<string, string | null>());
 
-  const load = async (query: string, proj: string) => {
+  const load = async (query: string) => {
     const params = new URLSearchParams();
     if (query) params.set('q', query);
-    if (proj) params.set('project', proj);
     const res = await fetch('/api/docs?' + params);
     setDocs(await res.json());
   };
-  loadRef.current = () => load(q, project);
+  loadRef.current = () => load(q);
 
   const markSeen = (d: Doc) => {
     if (!d.latestSha) return;
@@ -142,7 +147,6 @@ export default function App() {
 
   useEffect(() => {
     fetch('/api/config').then(r => r.json()).then(c => setDocsPort(c.docsPort));
-    fetch('/api/settings').then(r => r.json()).then((s: Settings) => setDefaultProject(s.defaultProject));
   }, []);
 
   useEffect(() => {
@@ -152,9 +156,9 @@ export default function App() {
   }, [notice]);
 
   useEffect(() => {
-    const t = setTimeout(() => load(q, project), 200);
+    const t = setTimeout(() => load(q), 200);
     return () => clearTimeout(t);
-  }, [q, project]);
+  }, [q]);
 
   useEffect(() => {
     const t = setInterval(() => loadRef.current(), 5000);
@@ -179,6 +183,36 @@ export default function App() {
       .then(text => setDiffView(diff2html(text, { drawFileList: false, matching: 'lines', outputFormat: 'side-by-side' })));
   }, [diffRange, selected]);
 
+  const toggleFavorite = async (e: React.MouseEvent, d: Doc) => {
+    e.stopPropagation();
+    const favorite = !d.favorite;
+    setDocs(prev => prev.map(x => x.slug === d.slug ? { ...x, favorite } : x));
+    const res = await fetch(`/api/docs/${d.slug}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ favorite }),
+    });
+    if (!res.ok) await load(q);
+  };
+
+  const startSidebarDrag = (e: React.PointerEvent) => {
+    e.preventDefault();
+    setDragging(true);
+    const startX = e.clientX;
+    const startW = sidebarW;
+    document.body.style.userSelect = 'none';
+    const onMove = (ev: PointerEvent) =>
+      setSidebarW(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, startW + ev.clientX - startX)));
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      document.body.style.userSelect = '';
+      setDragging(false);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+
   const select = async (d: Doc) => {
     setSelected(d);
     markSeen(d);
@@ -188,16 +222,6 @@ export default function App() {
     setDiffRange({ from: '', to: '' });
     const res = await fetch(`/api/docs/${d.slug}/versions`);
     setVersions(await res.json());
-  };
-
-  const upload = async (file: File) => {
-    const proj = prompt('Project name:', project || defaultProject);
-    if (proj === null) return;
-    const form = new FormData();
-    form.append('file', file);
-    form.append('project', proj);
-    await fetch('/api/docs', { method: 'POST', body: form });
-    await load(q, project);
   };
 
   const openSettings = async () => {
@@ -236,76 +260,58 @@ export default function App() {
       gitUserName: settings.gitUserName,
       gitUserEmail: settings.gitUserEmail,
     });
-    setDefaultProject(settings.defaultProject);
     setSettingsOpen(false);
     setSettings(null);
-    await load(q, project);
+    await load(q);
   };
+
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_KEY, String(sidebarW));
+  }, [sidebarW]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, Doc[]>();
     for (const d of [...docs].sort((a, b) => b.created.localeCompare(a.created))) {
       map.set(d.project, [...(map.get(d.project) ?? []), d]);
     }
-    return [...map.entries()].sort((a, b) => b[1][0].created.localeCompare(a[1][0].created));
+    // newest doc per project before pinning, so favorites don't affect project order
+    const newest = new Map([...map.entries()].map(([p, list]) => [p, list[0]?.created ?? '']));
+    for (const list of map.values()) list.sort((a, b) => Number(b.favorite) - Number(a.favorite));
+    return [...map.entries()].sort((a, b) => newest.get(b[0])!.localeCompare(newest.get(a[0])!));
   }, [docs]);
 
-  const projects = useMemo(() => [...new Set(docs.map(d => d.project))].sort(), [docs]);
   const origin = `${location.protocol}//${location.hostname}:${docsPort}`;
-
   return (
     <div className="flex h-screen bg-neutral-900 text-neutral-200 text-sm">
-      <aside className="w-64 shrink-0 flex flex-col border-r border-neutral-700">
-        <div className="p-2 space-y-2 border-b border-neutral-700">
+      <aside style={{ width: sidebarW }} className="shrink-0 flex flex-col border-r border-neutral-700">
+        <div className="p-2 border-b border-neutral-700 flex gap-2">
           <input
             ref={searchRef}
             value={q}
             onChange={e => setQ(e.target.value)}
             placeholder="Search  ( / )"
-            className="w-full bg-neutral-800 rounded px-2 py-1 outline-none focus:ring-1 ring-neutral-500"
+            className="flex-1 min-w-0 bg-neutral-800 rounded px-2 py-1 outline-none focus:ring-1 ring-neutral-500"
           />
-          <div className="flex gap-2">
-            <select
-              value={project}
-              onChange={e => setProject(e.target.value)}
-              className="flex-1 bg-neutral-800 rounded px-1 py-1"
-            >
-              <option value="">All projects</option>
-              {projects.map(p => <option key={p} value={p}>{p}</option>)}
-            </select>
-            <button
-              onClick={() => fileRef.current?.click()}
-              className="bg-neutral-700 hover:bg-neutral-600 rounded px-3"
-            >
-              Upload
-            </button>
-            <button
-              onClick={openSettings}
-              title="Settings"
-              className="bg-neutral-700 hover:bg-neutral-600 rounded px-2"
-            >
-              ⚙
-            </button>
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".html,.htm"
-              className="hidden"
-              onChange={e => {
-                const f = e.target.files?.[0];
-                if (f) upload(f);
-                e.target.value = '';
-              }}
-            />
-          </div>
+          <button
+            onClick={openSettings}
+            title="Settings"
+            className="bg-neutral-700 hover:bg-neutral-600 rounded px-2"
+          >
+            ⚙
+          </button>
         </div>
         <div className="flex-1 overflow-y-auto pb-4">
           {grouped.map(([proj, list]) => (
-            <ProjectGroup key={proj} name={proj} docs={list} selected={selected} unread={unread} onSelect={select} />
+            <ProjectGroup key={proj} name={proj} docs={list} selected={selected} unread={unread} onSelect={select} onToggleFavorite={toggleFavorite} />
           ))}
           {docs.length === 0 && <p className="px-3 py-4 text-neutral-500">No documents</p>}
         </div>
       </aside>
+
+      <div
+        onPointerDown={startSidebarDrag}
+        className={`w-1 shrink-0 cursor-col-resize ${dragging ? 'bg-neutral-500' : 'hover:bg-neutral-600'}`}
+      />
 
       <main className="flex-1 flex flex-col min-w-0">
         {selected ? (
@@ -363,14 +369,14 @@ export default function App() {
                 key={`${selected.slug}:${sha || docs.find(d => docKey(d) === docKey(selected))?.latestSha || ''}`}
                 sandbox="allow-scripts"
                 src={`${origin}/${selected.project}/${selected.slug}${sha ? `?sha=${sha}` : ''}`}
-                className="flex-1 bg-white"
+                className={`flex-1 bg-white ${dragging ? 'pointer-events-none' : ''}`}
                 title={selected.title}
               />
             )}
           </>
         ) : (
           <div className="flex-1 grid place-items-center text-neutral-500">
-            Select a document — or upload one
+            Select a document
           </div>
         )}
       </main>
@@ -433,12 +439,13 @@ export default function App() {
   );
 }
 
-function ProjectGroup({ name, docs, selected, unread, onSelect }: {
+function ProjectGroup({ name, docs, selected, unread, onSelect, onToggleFavorite }: {
   name: string;
   docs: Doc[];
   selected: Doc | null;
   unread: Map<string, 'new' | 'upd'>;
   onSelect: (d: Doc) => void;
+  onToggleFavorite: (e: React.MouseEvent, d: Doc) => void;
 }) {
   const [open, setOpen] = useState(true);
   const unreadCount = docs.filter(d => unread.has(docKey(d))).length;
@@ -461,8 +468,12 @@ function ProjectGroup({ name, docs, selected, unread, onSelect }: {
           <button
             key={d.slug}
             onClick={() => onSelect(d)}
-            className={`w-full text-left px-4 py-1 truncate hover:bg-neutral-800 flex items-center gap-1.5 ${
-              selected?.slug === d.slug ? 'bg-neutral-800 text-white' : ''
+            className={`group w-full text-left px-4 py-1 truncate hover:bg-neutral-800 flex items-center gap-1.5 ${
+              selected?.slug === d.slug
+                ? 'bg-neutral-800 text-white'
+                : d.favorite
+                  ? 'bg-amber-400/[0.07] hover:bg-amber-400/[0.12]'
+                  : ''
             }`}
           >
             {state && (
@@ -471,7 +482,16 @@ function ProjectGroup({ name, docs, selected, unread, onSelect }: {
                 title={state === 'new' ? 'New document' : 'Updated since last viewed'}
               />
             )}
-            <span className="truncate">{d.title}</span>
+            <span className="truncate flex-1">{d.title}</span>
+            <span
+              onClick={e => onToggleFavorite(e, d)}
+              title={d.favorite ? 'Un-favorite' : 'Favorite'}
+              className={d.favorite
+                ? 'shrink-0 text-amber-400'
+                : 'shrink-0 text-neutral-400 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-60'}
+            >
+              {d.favorite ? '★' : '☆'}
+            </span>
           </button>
         );
       })}

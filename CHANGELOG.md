@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Settings API: read/update vault directory (with live vault swap), default project, and git identity
+- Favorite documents: hover a list row and click the star — favorited docs get a golden star and tint and pin to the top of their project section; stored server-side via `PATCH /api/docs/:slug`
+- Sidebar divider between the docs list and the viewer is now draggable; width is remembered per browser
 
 ### Fixed
 
@@ -20,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Docker container now restarts automatically on boot (`unless-stopped`)
 - Projects in the docs list are now ordered by most recent document instead of alphabetically
+
+### Removed
+
+- Project filter dropdown and Upload button from the docs UI — the tool is primarily agent-driven; uploads go through the `vault` CLI or the API
 
 ## [0.1.1] - 2026-08-07
 

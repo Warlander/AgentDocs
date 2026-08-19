@@ -6,7 +6,7 @@ import { execa } from 'execa';
 import { parse as parseYaml, stringify as toYaml } from 'yaml';
 import { parse as parseToml, stringify as toToml } from 'smol-toml';
 import { loadConfig, type VaultConfig } from './config.js';
-import { clearDocs, getDoc, listDocs, openDb, upsertDoc, type Db } from './db.js';
+import { clearDocs, getDoc, listDocs, openDb, setFavorite, upsertDoc, type Db } from './db.js';
 import { git } from './git.js';
 import { saveVaultDir } from './settings.js';
 import { ensureVault } from './vault.js';
@@ -163,6 +163,15 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
     const doc = getDoc(db, c.req.param('slug'));
     if (!doc) return c.json({ error: 'not found' }, 404);
     return c.json({ ...doc, meta: readMeta(doc.project, doc.slug) ?? {} });
+  });
+
+  api.patch('/api/docs/:slug', async c => {
+    const doc = getDoc(db, c.req.param('slug'));
+    if (!doc) return c.json({ error: 'not found' }, 404);
+    const body = await c.req.json().catch(() => ({}));
+    if (typeof body.favorite !== 'boolean') return c.json({ error: 'favorite (boolean) required' }, 400);
+    setFavorite(db, doc.slug, body.favorite);
+    return c.json({ slug: doc.slug, favorite: body.favorite });
   });
 
   api.get('/api/docs/:slug/versions', async c => {

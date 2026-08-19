@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { getDoc, listDocs, openDb, upsertDoc, type Db } from '../src/db.js';
+import { clearDocs, getDoc, listDocs, openDb, setFavorite, upsertDoc, type Db } from '../src/db.js';
 
 let db: Db;
 
@@ -56,5 +56,31 @@ describe('upsertDoc / getDoc', () => {
 
   it('returns undefined for unknown slug', () => {
     expect(getDoc(db, 'nope')).toBeUndefined();
+  });
+});
+
+describe('favorites', () => {
+  it('docs are not favorited by default', () => {
+    expect(listDocs(db).map(d => d.favorite)).toEqual([false, false]);
+  });
+
+  it('setFavorite toggles the flag in list and get', () => {
+    setFavorite(db, 'report', true);
+    expect(getDoc(db, 'report')?.favorite).toBe(true);
+    expect(listDocs(db).find(d => d.slug === 'notes')?.favorite).toBe(false);
+    setFavorite(db, 'report', false);
+    expect(getDoc(db, 'report')?.favorite).toBe(false);
+  });
+
+  it('favoriting an unknown slug is a harmless no-op', () => {
+    setFavorite(db, 'ghost', true);
+    expect(listDocs(db).every(d => !d.favorite)).toBe(true);
+  });
+
+  it('favorites survive clearDocs (reindex)', () => {
+    setFavorite(db, 'report', true);
+    clearDocs(db);
+    upsertDoc(db, { slug: 'report', project: 'demo', title: 'Quarterly Report', created: '2026-01-01', body: 'revenue grew', latestSha: 'aaa' });
+    expect(getDoc(db, 'report')?.favorite).toBe(true);
   });
 });
