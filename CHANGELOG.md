@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Docker container now restarts automatically on boot (`unless-stopped`)
 - Projects in the docs list are now ordered by most recent document instead of alphabetically
+- Empty-state text now hints that agents can upload documents to the vault
 
 ### Removed
 

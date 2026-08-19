@@ -395,8 +395,8 @@ export default function App() {
             )}
           </>
         ) : (
-          <div className="flex-1 grid place-items-center text-neutral-500">
-            Select a document
+          <div className="flex-1 grid place-items-center text-neutral-500 text-center">
+            <p>Select a document<br />or let your agents upload new documents to the vault</p>
           </div>
         )}
       </main>
