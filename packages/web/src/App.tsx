@@ -87,6 +87,7 @@ export default function App() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [settingsError, setSettingsError] = useState('');
   const [notice, setNotice] = useState('');
+  const [copied, setCopied] = useState(false);
   const [sidebarW, setSidebarW] = useState(() => {
     const v = Number(localStorage.getItem(SIDEBAR_KEY));
     return v >= SIDEBAR_MIN && v <= SIDEBAR_MAX ? v : 256;
@@ -317,8 +318,27 @@ export default function App() {
         {selected ? (
           <>
             <div className="flex items-center gap-2 p-2 border-b border-neutral-700">
-              <span className="font-medium truncate">{selected.title}</span>
-              <span className="text-neutral-500 text-xs">{selected.project}/{selected.slug}</span>
+              <button
+                onClick={() => {
+                  const url = `${origin}/${selected.project}/${selected.slug}${sha ? `?sha=${sha}` : ''}`;
+                  navigator.clipboard.writeText(url).then(() => {
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 150);
+                  });
+                }}
+                title="Copy link to raw document"
+                className="group flex items-baseline gap-2 min-w-0 rounded px-1 -mx-1 hover:bg-neutral-800 cursor-pointer"
+              >
+                <span className={`font-medium truncate transition-colors duration-300 ${copied ? 'text-amber-400' : ''}`}>{selected.title}</span>
+                <span className={`text-xs shrink-0 transition-colors duration-300 ${copied ? 'text-amber-500' : 'text-neutral-500'}`}>{selected.project}/{selected.slug}</span>
+                <svg
+                  viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"
+                  className={`w-3.5 h-3.5 shrink-0 self-center transition-colors ${copied ? 'text-amber-500' : 'text-neutral-600 group-hover:text-neutral-400'}`}
+                >
+                  <rect x="5" y="5" width="8" height="9" rx="1.5" />
+                  <path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-5A1.5 1.5 0 0 0 3 3.5v7A1.5 1.5 0 0 0 4.5 12H5" />
+                </svg>
+              </button>
               <div className="ml-auto flex items-center gap-2">
                 {diffing && (
                   <>
