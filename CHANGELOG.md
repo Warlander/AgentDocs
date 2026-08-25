@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Favorite documents: hover a list row and click the star — favorited docs get a golden star and tint and pin to the top of their project section; stored server-side via `PATCH /api/docs/:slug`
 - Sidebar divider between the docs list and the viewer is now draggable; width is remembered per browser
 - Clicking the open doc's title copies the raw document URL (pinned to the selected version when one is chosen) for pasting into agent conversations or browsers
+- Smart collapsing: projects show at most 8 non-favorite documents (favorites always visible); expand with "Show 8 more" / "Show all" — expansion resets when the browser tab closes. Cap configurable in Settings ("Documents shown per project")
 
 ### Fixed
 

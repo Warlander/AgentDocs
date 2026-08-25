@@ -22,14 +22,23 @@ interface Settings {
   defaultProject: string;
   gitUserName: string;
   gitUserEmail: string;
+  collapseAfter: number;
 }
 
 const docKey = (d: { project: string; slug: string }) => `${d.project}/${d.slug}`;
 
 const SEEN_KEY = 'agentdocs-seen';
 const SIDEBAR_KEY = 'agentdocs-sidebar-width';
+const EXPANDED_KEY = 'agentdocs-expanded:';
 const SIDEBAR_MIN = 160;
 const SIDEBAR_MAX = 600;
+
+function loadExpanded(project: string): number | 'all' {
+  const v = sessionStorage.getItem(EXPANDED_KEY + project);
+  if (v === 'all') return 'all';
+  const n = Number(v);
+  return Number.isInteger(n) && n > 0 ? n : 0;
+}
 
 function loadSeen(): Record<string, string> {
   try {
@@ -86,6 +95,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [settingsError, setSettingsError] = useState('');
+  const [collapseAfter, setCollapseAfter] = useState(8);
   const [notice, setNotice] = useState('');
   const [copied, setCopied] = useState(false);
   const [sidebarW, setSidebarW] = useState(() => {
@@ -148,6 +158,7 @@ export default function App() {
 
   useEffect(() => {
     fetch('/api/config').then(r => r.json()).then(c => setDocsPort(c.docsPort));
+    fetch('/api/settings').then(r => r.json()).then(s => setCollapseAfter(s.collapseAfter ?? 8));
   }, []);
 
   useEffect(() => {
@@ -260,7 +271,9 @@ export default function App() {
       defaultProject: settings.defaultProject,
       gitUserName: settings.gitUserName,
       gitUserEmail: settings.gitUserEmail,
+      collapseAfter: String(settings.collapseAfter),
     });
+    setCollapseAfter(settings.collapseAfter);
     setSettingsOpen(false);
     setSettings(null);
     await load(q);
@@ -303,7 +316,7 @@ export default function App() {
         </div>
         <div className="flex-1 overflow-y-auto pb-4">
           {grouped.map(([proj, list]) => (
-            <ProjectGroup key={proj} name={proj} docs={list} selected={selected} unread={unread} onSelect={select} onToggleFavorite={toggleFavorite} />
+            <ProjectGroup key={proj} name={proj} docs={list} selected={selected} unread={unread} cap={collapseAfter} expandAll={q !== ''} onSelect={select} onToggleFavorite={toggleFavorite} />
           ))}
           {docs.length === 0 && <p className="px-3 py-4 text-neutral-500">No documents</p>}
         </div>
@@ -432,6 +445,16 @@ export default function App() {
                 />
               </label>
             ))}
+            <label className="block text-xs text-neutral-400">
+              Documents shown per project
+              <input
+                type="number"
+                min={1}
+                value={settings.collapseAfter}
+                onChange={e => setSettings({ ...settings, collapseAfter: Math.max(1, Math.floor(Number(e.target.value)) || 1) })}
+                className="mt-1 w-full bg-neutral-900 rounded px-2 py-1 text-sm text-neutral-200 outline-none focus:ring-1 ring-neutral-500"
+              />
+            </label>
             {settings.vaultDir !== settingsOrig.current?.vaultDir && (
               <p className="text-xs text-amber-400">
                 Changing vault location switches immediately — documents stay in their current vault.
@@ -459,16 +482,61 @@ export default function App() {
   );
 }
 
-function ProjectGroup({ name, docs, selected, unread, onSelect, onToggleFavorite }: {
+function ProjectGroup({ name, docs, selected, unread, cap, expandAll, onSelect, onToggleFavorite }: {
   name: string;
   docs: Doc[];
   selected: Doc | null;
   unread: Map<string, 'new' | 'upd'>;
+  cap: number;
+  expandAll: boolean;
   onSelect: (d: Doc) => void;
   onToggleFavorite: (e: React.MouseEvent, d: Doc) => void;
 }) {
   const [open, setOpen] = useState(true);
+  const [expanded, setExpanded] = useState<number | 'all'>(() => loadExpanded(name));
+  const setExpansion = (v: number | 'all') => {
+    setExpanded(v);
+    sessionStorage.setItem(EXPANDED_KEY + name, String(v));
+  };
   const unreadCount = docs.filter(d => unread.has(docKey(d))).length;
+  const favs = docs.filter(d => d.favorite);
+  const rest = docs.filter(d => !d.favorite);
+  const limit = expandAll || expanded === 'all' ? rest.length : Math.min(rest.length, cap + expanded);
+  const visibleRest = rest.filter((d, i) => i < limit || (selected !== null && docKey(d) === docKey(selected)));
+  const hiddenCount = rest.length - visibleRest.length;
+  const renderDoc = (d: Doc) => {
+    const state = unread.get(docKey(d));
+    return (
+      <button
+        key={d.slug}
+        onClick={() => onSelect(d)}
+        className={`group w-full text-left px-4 py-1 truncate hover:bg-neutral-800 flex items-center gap-1.5 ${
+          selected?.slug === d.slug
+            ? 'bg-neutral-800 text-white'
+            : d.favorite
+              ? 'bg-amber-400/[0.07] hover:bg-amber-400/[0.12]'
+              : ''
+        }`}
+      >
+        {state && (
+          <span
+            className={`w-1.5 h-1.5 rounded-full shrink-0 ${state === 'new' ? 'bg-green-400' : 'bg-amber-400'}`}
+            title={state === 'new' ? 'New document' : 'Updated since last viewed'}
+          />
+        )}
+        <span className="truncate flex-1">{d.title}</span>
+        <span
+          onClick={e => onToggleFavorite(e, d)}
+          title={d.favorite ? 'Un-favorite' : 'Favorite'}
+          className={d.favorite
+            ? 'shrink-0 text-amber-400'
+            : 'shrink-0 text-neutral-400 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-60'}
+        >
+          {d.favorite ? '★' : '☆'}
+        </span>
+      </button>
+    );
+  };
   return (
     <div>
       <button
@@ -482,39 +550,33 @@ function ProjectGroup({ name, docs, selected, unread, onSelect, onToggleFavorite
           </span>
         )}
       </button>
-      {open && docs.map(d => {
-        const state = unread.get(docKey(d));
-        return (
-          <button
-            key={d.slug}
-            onClick={() => onSelect(d)}
-            className={`group w-full text-left px-4 py-1 truncate hover:bg-neutral-800 flex items-center gap-1.5 ${
-              selected?.slug === d.slug
-                ? 'bg-neutral-800 text-white'
-                : d.favorite
-                  ? 'bg-amber-400/[0.07] hover:bg-amber-400/[0.12]'
-                  : ''
-            }`}
-          >
-            {state && (
-              <span
-                className={`w-1.5 h-1.5 rounded-full shrink-0 ${state === 'new' ? 'bg-green-400' : 'bg-amber-400'}`}
-                title={state === 'new' ? 'New document' : 'Updated since last viewed'}
-              />
-            )}
-            <span className="truncate flex-1">{d.title}</span>
-            <span
-              onClick={e => onToggleFavorite(e, d)}
-              title={d.favorite ? 'Un-favorite' : 'Favorite'}
-              className={d.favorite
-                ? 'shrink-0 text-amber-400'
-                : 'shrink-0 text-neutral-400 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-60'}
-            >
-              {d.favorite ? '★' : '☆'}
-            </span>
-          </button>
-        );
-      })}
+      {open && (
+        <>
+          {favs.map(renderDoc)}
+          {visibleRest.map(renderDoc)}
+          {hiddenCount > 0 && (
+            <div className="px-4 py-1 text-xs text-neutral-500">
+              {hiddenCount > cap && (
+                <>
+                  <button
+                    onClick={() => setExpansion(expanded === 'all' ? 'all' : expanded + cap)}
+                    className="hover:underline hover:text-neutral-300"
+                  >
+                    Show {Math.min(cap, hiddenCount)} more
+                  </button>
+                  {' · '}
+                </>
+              )}
+              <button
+                onClick={() => setExpansion('all')}
+                className="hover:underline hover:text-neutral-300"
+              >
+                Show all ({hiddenCount})
+              </button>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

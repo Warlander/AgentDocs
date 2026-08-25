@@ -18,12 +18,17 @@ afterEach(async () => {
 
 describe('loadConfig', () => {
   it('returns defaults without toml', () => {
-    expect(loadConfig(dir)).toEqual({ apiPort: 3000, docsPort: 3001, defaultProject: 'misc' });
+    expect(loadConfig(dir)).toEqual({ apiPort: 3000, docsPort: 3001, defaultProject: 'misc', collapseAfter: 8 });
   });
 
   it('toml overrides defaults', async () => {
-    await writeFile(path.join(dir, 'vault.toml'), '[server]\napi_port = 4000\n[defaults]\nproject = "x"\n');
-    expect(loadConfig(dir)).toEqual({ apiPort: 4000, docsPort: 3001, defaultProject: 'x' });
+    await writeFile(path.join(dir, 'vault.toml'), '[server]\napi_port = 4000\n[defaults]\nproject = "x"\n[ui]\ncollapse_after = 5\n');
+    expect(loadConfig(dir)).toEqual({ apiPort: 4000, docsPort: 3001, defaultProject: 'x', collapseAfter: 5 });
+  });
+
+  it('invalid collapse_after falls back to 8', async () => {
+    await writeFile(path.join(dir, 'vault.toml'), '[ui]\ncollapse_after = 0\n');
+    expect(loadConfig(dir).collapseAfter).toBe(8);
   });
 
   it('env beats toml', async () => {

@@ -53,6 +53,19 @@ describe('POST /api/settings', () => {
     expect(loadConfig(dir).defaultProject).toBe('demo-project');
   });
 
+  it('round-trips collapseAfter through vault.toml', async () => {
+    const res = await postSettings({ collapseAfter: 5 });
+    expect(res.status).toBe(200);
+    expect(loadConfig(dir).collapseAfter).toBe(5);
+    const get = await apps.api.request('/api/settings');
+    expect((await get.json()).collapseAfter).toBe(5);
+  });
+
+  it('rejects invalid collapseAfter', async () => {
+    const res = await postSettings({ collapseAfter: 0 });
+    expect(res.status).toBe(400);
+  });
+
   it('sets git identity in the vault repo', async () => {
     await postSettings({ gitUserName: 'Ada', gitUserEmail: 'ada@example.com' });
     const { stdout: name } = await execa('git', ['-C', dir, 'config', 'user.name']);

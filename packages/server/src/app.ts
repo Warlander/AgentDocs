@@ -60,9 +60,11 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
   api.get('/api/settings', async c => {
     const gitConfig = async (key: string) =>
       git(vaultDir, ['config', key]).then(r => r.stdout.trim(), () => '');
+    const cfg = loadConfig(vaultDir);
     return c.json({
       vaultDir,
-      defaultProject: loadConfig(vaultDir).defaultProject,
+      defaultProject: cfg.defaultProject,
+      collapseAfter: cfg.collapseAfter,
       gitUserName: await gitConfig('user.name'),
       gitUserEmail: await gitConfig('user.email'),
     });
@@ -93,6 +95,17 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
       const file = path.join(vaultDir, 'vault.toml');
       const cfg: any = existsSync(file) ? parseToml(readFileSync(file, 'utf8')) : {};
       cfg.defaults = { ...(cfg.defaults as object), project };
+      writeFileSync(file, toToml(cfg));
+    }
+
+    if (body.collapseAfter !== undefined) {
+      const n = Number(body.collapseAfter);
+      if (!Number.isInteger(n) || n < 1) {
+        return c.json({ error: 'collapseAfter must be a positive integer' }, 400);
+      }
+      const file = path.join(vaultDir, 'vault.toml');
+      const cfg: any = existsSync(file) ? parseToml(readFileSync(file, 'utf8')) : {};
+      cfg.ui = { ...(cfg.ui as object), collapse_after: n };
       writeFileSync(file, toToml(cfg));
     }
 
