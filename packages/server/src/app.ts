@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { Hono } from 'hono';
 import { serveStatic } from '@hono/node-server/serve-static';
@@ -269,9 +270,15 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
   const DOC_HEADERS = {
     'Content-Type': 'text/html; charset=utf-8',
     'Cache-Control': 'no-store',
-    'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; font-src data:",
+    'Content-Security-Policy': "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; font-src data:",
     'X-Content-Type-Options': 'nosniff',
   };
+
+  // Local Mermaid build — docs' CSP blocks CDN scripts, so serve it same-origin
+  const mermaidJs = readFileSync(createRequire(import.meta.url).resolve('mermaid/dist/mermaid.min.js'));
+  docsApp.get('/vendor/mermaid.min.js', () => new Response(mermaidJs, {
+    headers: { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'public, max-age=3600' },
+  }));
 
   docsApp.get('/:project/:slug', async c => {
     const { project, slug } = c.req.param();

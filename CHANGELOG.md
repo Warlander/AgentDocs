@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sidebar divider between the docs list and the viewer is now draggable; width is remembered per browser
 - Clicking the open doc's title copies the raw document URL (pinned to the selected version when one is chosen) for pasting into agent conversations or browsers
 - Smart collapsing: projects show at most 8 non-favorite documents (favorites always visible); expand with "Show 8 more" / "Show all" — expansion resets when the browser tab closes. Cap configurable in Settings ("Documents shown per project")
+- Mermaid diagrams in documents: the docs origin serves a local Mermaid build at `/vendor/mermaid.min.js` (CDN scripts are blocked by the docs CSP)
 
 ### Fixed
 

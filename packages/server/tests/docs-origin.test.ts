@@ -31,7 +31,7 @@ describe('docs origin', () => {
   it('sets restrictive CSP and nosniff', async () => {
     const res = await apps.docsApp.request('/demo/report');
     expect(res.headers.get('Content-Security-Policy')).toBe(
-      "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; font-src data:");
+      "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; font-src data:");
     expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
     expect(res.headers.get('Content-Type')).toContain('text/html');
   });
@@ -42,6 +42,13 @@ describe('docs origin', () => {
 
   it('rejects malformed sha', async () => {
     expect((await apps.docsApp.request('/demo/report?sha=zzz')).status).toBe(400);
+  });
+
+  it('serves local mermaid build', async () => {
+    const res = await apps.docsApp.request('/vendor/mermaid.min.js');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toContain('text/javascript');
+    expect(await res.text()).toContain('mermaid');
   });
 
   it('404s unknown sha', async () => {
