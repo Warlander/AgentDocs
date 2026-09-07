@@ -20,6 +20,11 @@
 - Don't hand-edit files under `vault/` without committing — it's a git repo
 - Ports are bound once at startup; port config changes need a restart
 
+## Dependency Changes
+
+- Before adding or upgrading an npm package, verify its own and new transitive `engines` requirements against the root `package.json` Node minimum.
+- Avoid `npm dedupe` during feature work. Inspect lockfile changes after package-manager commands and remove unrelated dependency-placement or version churn.
+
 ## Changelog
 
 - Every user-facing change gets a `CHANGELOG.md` entry under `[Unreleased]`, in the same commit/PR as the change.

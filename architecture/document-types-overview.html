@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Multi-Format Document Architecture</title>
+<style>
+:root {
+  --bg: #15181e; --fg: #e2e4e9; --muted: #9aa1ad;
+  --border: rgba(148,163,184,0.25); --code-bg: rgba(148,163,184,0.12);
+  --ok-bg: #064e3b; --ok-fg: #6ee7b7;
+  --warn-bg: #78350f; --warn-fg: #fcd34d;
+  --bad-bg: #7f1d1d; --bad-fg: #fca5a5;
+  --accent: #a5b4fc; --accent-bg: rgba(165,180,252,0.08);
+  --neutral-bg: #374151; --neutral-fg: #d1d5db;
+  --text-xs: 0.75rem; --text-sm: 0.85rem; --text-base: 1rem;
+  --text-lg: 1.15rem; --text-xl: 1.35rem; --text-2xl: 1.75rem;
+}
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: var(--text-base); line-height: 1.6;
+  max-width: 900px; margin: 0 auto; padding: 2rem;
+  color: var(--fg); background: var(--bg);
+}
+h1 { font-size: var(--text-2xl); font-weight: 600; border-bottom: 2px solid currentColor; padding-bottom: 0.3rem; }
+h2 { font-size: var(--text-xl); font-weight: 600; margin-top: 2.5rem; }
+h3 { font-size: var(--text-lg); font-weight: 600; margin-top: 1.5rem; }
+a { color: var(--accent); }
+code, pre { font-family: 'SF Mono', Monaco, Consolas, monospace; background: var(--code-bg); border-radius: 4px; }
+code { padding: 0.1em 0.3em; }
+pre { padding: 1rem; overflow-x: auto; font-size: var(--text-sm); }
+table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-variant-numeric: tabular-nums; }
+th, td { padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+th { font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+tbody tr:hover { background: var(--accent-bg); }
+.summary { font-size: 1.05rem; color: var(--muted); }
+.badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px; font-weight: 600; font-size: var(--text-sm); white-space: nowrap; }
+.b-ok { background: var(--ok-bg); color: var(--ok-fg); }
+.b-warn { background: var(--warn-bg); color: var(--warn-fg); }
+.b-bad { background: var(--bad-bg); color: var(--bad-fg); }
+.b-neutral { background: var(--neutral-bg); color: var(--neutral-fg); }
+.b-accent { background: var(--accent-bg); color: var(--accent); }
+.ratings { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin: 1rem 0; }
+.rating-card { border: 1px solid var(--border); border-radius: 8px; padding: 0.8rem 1rem; }
+.rating-card .label { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.rating-card .why { font-size: 0.9rem; margin-top: 0.4rem; }
+.options-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.8rem; margin: 0.8rem 0; }
+.option-card { border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 6px; padding: 0.8rem 1rem; margin: 0; }
+.option-card h4 { margin: 0 0 0.3rem 0; }
+.opinion { border-left: 4px solid var(--accent); background: var(--accent-bg); padding: 0.8rem 1rem; margin: 1rem 0; border-radius: 0 6px 6px 0; }
+.opinion .tag { font-weight: 600; color: var(--accent); font-size: var(--text-sm); text-transform: uppercase; letter-spacing: 0.05em; }
+.flow { border: 1px solid var(--border); border-radius: 8px; padding: 1rem; background: var(--accent-bg); }
+.locked { border-left: 4px solid var(--accent); padding-left: 1rem; margin: 1rem 0; }
+.small { color: var(--muted); font-size: var(--text-sm); }
+@media (max-width: 640px) { .ratings { grid-template-columns: 1fr; } body { padding: 1rem; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Multi-Format Document Architecture</h1>
+</header>
+<main>
+  <section>
+    <h2>Summary</h2>
+    <p class="summary">AgentDocs now accepts HTML and Markdown through a renderer registry while continuing to serve every document as a committed <code>index.html</code>. Original source is preserved beside the rendered artifact, so future renderers can be added without changing the web UI, search index, historical viewer, or docs origin. Invalid document input is rejected before filesystem or Git mutation with a specific 4xx response.</p>
+  </section>
+
+  <section>
+    <h2>Context</h2>
+    <p>The Markdown contract follows the <a href="https://www.markdownguide.org/basic-syntax/">Markdown Guide basic syntax</a> and its <a href="https://www.markdownguide.org/extended-syntax/">extended syntax</a>; that guide notes that extended features are processor-specific, so AgentDocs defines an explicit dialect below.</p>
+  </section>
+
+  <section>
+    <h2>Evaluations</h2>
+    <div class="ratings">
+      <div class="rating-card"><div class="label">Size <span class="badge b-ok">1</span></div><div class="why">One server pipeline, CLI MIME selection, tests, and documentation changed.</div></div>
+      <div class="rating-card"><div class="label">Complexity <span class="badge b-warn">2</span></div><div class="why">Format dispatch, deterministic storage, Markdown dialect coverage, and input failure semantics interact.</div></div>
+      <div class="rating-card"><div class="label">Risk <span class="badge b-ok">1</span></div><div class="why">The universal <code>index.html</code> contract keeps existing viewers and legacy vaults compatible.</div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Decisions</h2>
+    <table>
+      <thead><tr><th>ID</th><th>Decider</th><th>Description</th><th>Decision</th></tr></thead>
+      <tbody>
+        <tr><td>D1</td><td><span class="badge b-ok">HUMAN</span></td><td>All document formats must render as web pages.</td><td>Every renderer emits a committed <code>index.html</code>.</td></tr>
+        <tr><td>D2</td><td><span class="badge b-ok">HUMAN</span></td><td>Markdown must cover basic and extended syntax.</td><td>Define and test the complete Markdown Guide feature set.</td></tr>
+        <tr><td>D3</td><td><span class="badge b-ok">HUMAN</span></td><td>Invalid uploads must not become server errors.</td><td>Validate and render before writes; return 400, 415, or 422.</td></tr>
+        <tr><td>D4</td><td><span class="badge b-neutral">AI</span></td><td>Preserve format-specific input.</td><td>Commit <code>source.&lt;ext&gt;</code>, rendered HTML, and type metadata.</td></tr>
+        <tr><td>D5</td><td><span class="badge b-neutral">AI</span></td><td>Choose the Markdown processor.</td><td>Use <code>markdown-it</code> 14.x, focused plugins, and <code>highlight.js</code>.</td></tr>
+        <tr><td>D6</td><td><span class="badge b-warn">DECIDE</span></td><td>Choose how third-party custom DSL renderers are discovered.</td><td>Remain compile-time registered until a real dynamic-loading use case exists.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Locked Decisions</h2>
+    <div class="locked"><strong>D1 — Universal web artifact.</strong> The docs origin remains deliberately format-blind and only serves <code>index.html</code>, including historical Git revisions.</div>
+    <div class="locked"><strong>D2 — Explicit Markdown dialect.</strong> “Extended” means every feature listed in the Markdown Guide feature matrix under Anything Else, not an ambiguous promise of whichever defaults a library happens to enable.</div>
+    <div class="locked"><strong>D3 — Client input errors stay client errors.</strong> Malformed multipart is 400, unsupported formats are 415, and invalid source or renderer failures are 422; genuine Git/filesystem failures remain 500.</div>
+  </section>
+
+  <section>
+    <h2>Open Decisions</h2>
+    <h3>D6 — Custom renderer discovery</h3>
+    <div class="options-grid">
+      <article class="option-card"><h4>A. Compile-time registry</h4><p>Add a <code>DocumentRenderer</code> object to application composition. Smallest attack surface and simplest deployment; adding a renderer requires a release.</p></article>
+      <article class="option-card"><h4>B. Configured JavaScript modules</h4><p>Load renderer packages named in configuration. Fast extension, but arbitrary modules execute with full server privileges and complicate failure isolation.</p></article>
+      <article class="option-card"><h4>C. Subprocess protocol</h4><p>Send source to external renderer commands and accept HTML back. Language-neutral and isolatable, but introduces process lifecycle, timeout, and deployment complexity.</p></article>
+    </div>
+    <div class="opinion"><div class="tag">Opinion</div><p>Keep A for now. The registry already makes renderer code local and testable; move to C only when a concrete non-JavaScript DSL needs independent deployment, and avoid B unless the vault is explicitly treated as a trusted-code plugin host.</p></div>
+  </section>
+
+  <section>
+    <h2>Plan</h2>
+    <ol>
+      <li>Introduce a renderer interface and registry → verify HTML pass-through and injected custom renderers.</li>
+      <li>Add the Markdown renderer and explicit syntax plugins → verify every dialect feature in one focused unit suite.</li>
+      <li>Render before persistence and retain source/type metadata → verify failed uploads create no files, commit, or index row.</li>
+      <li>Keep <code>index.html</code> as the read model → verify latest, historical, search, and reindex flows for both formats.</li>
+    </ol>
+    <div class="flow">
+      <svg viewBox="0 0 820 130" role="img" aria-label="Upload pipeline from file through validation and renderer registry to source, HTML, Git, search, and web viewer" width="100%">
+        <defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#a5b4fc"/></marker></defs>
+        <g fill="#374151" stroke="#a5b4fc" stroke-width="2">
+          <rect x="10" y="35" width="105" height="55" rx="8"/><rect x="145" y="35" width="120" height="55" rx="8"/>
+          <rect x="295" y="35" width="130" height="55" rx="8"/><rect x="455" y="10" width="135" height="45" rx="8"/>
+          <rect x="455" y="75" width="135" height="45" rx="8"/><rect x="620" y="35" width="185" height="55" rx="8"/>
+        </g>
+        <g fill="#e2e4e9" font-family="system-ui" font-size="13" text-anchor="middle">
+          <text x="62" y="67">Upload</text><text x="205" y="59">UTF-8 + input</text><text x="205" y="77">validation</text>
+          <text x="360" y="59">Renderer</text><text x="360" y="77">registry</text><text x="522" y="38">source.ext</text>
+          <text x="522" y="103">index.html</text><text x="712" y="59">Git + search +</text><text x="712" y="77">HTML viewer</text>
+        </g>
+        <g stroke="#a5b4fc" stroke-width="2" marker-end="url(#arrow)"><path d="M115 62 H145"/><path d="M265 62 H295"/><path d="M425 55 L455 35"/><path d="M425 70 L455 96"/><path d="M590 34 L620 55"/><path d="M590 98 L620 72"/></g>
+      </svg>
+    </div>
+  </section>
+
+  <section>
+    <h2>Edge Cases</h2>
+    <table>
+      <thead><tr><th>ID</th><th>Edge Case</th><th>Handling</th></tr></thead>
+      <tbody>
+        <tr><td>E1</td><td>Unknown extension or requested type</td><td>415 before resolving a vault directory.</td></tr>
+        <tr><td>E2</td><td>Malformed multipart, missing file, invalid UTF-8, empty text, or null bytes</td><td>400/422 before any document mutation.</td></tr>
+        <tr><td>E3</td><td>Custom renderer throws or emits no HTML</td><td>Converted to 422; original document remains untouched.</td></tr>
+        <tr><td>E4</td><td>An update switches document type</td><td>New canonical source replaces the previously managed source; Git retains history.</td></tr>
+        <tr><td>E5</td><td>Legacy document has only <code>index.html</code> and no type metadata</td><td>Read, serve, search, and reindex paths continue to use <code>index.html</code>.</td></tr>
+        <tr><td>E6</td><td>Markdown contains raw HTML or scripts</td><td>Allowed for syntax compatibility and contained by the existing iframe sandbox plus docs-origin CSP.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Testing</h2>
+    <table>
+      <thead><tr><th>ID</th><th>Tester</th><th>What's Tested</th><th>How To Test</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>T1</td><td><span class="badge b-accent">UNIT</span></td><td>HTML pass-through and custom renderer seam</td><td><code>documents.test.ts</code></td><td><span class="badge b-ok">SUCCESS</span></td></tr>
+        <tr><td>T2</td><td><span class="badge b-accent">UNIT</span></td><td>Basic and all declared extended Markdown features</td><td><code>documents.test.ts</code></td><td><span class="badge b-ok">SUCCESS</span></td></tr>
+        <tr><td>T3</td><td><span class="badge b-accent">UNIT</span></td><td>4xx responses and mutation-free invalid uploads</td><td><code>api.test.ts</code></td><td><span class="badge b-ok">SUCCESS</span></td></tr>
+        <tr><td>T4</td><td><span class="badge b-accent">UNIT</span></td><td>Markdown persistence, search, reindex, and HTML serving</td><td>Server API and docs-origin suites</td><td><span class="badge b-ok">SUCCESS</span></td></tr>
+        <tr><td>T5</td><td><span class="badge b-neutral">AI</span></td><td>Server, CLI, and web type safety/build</td><td>Workspace typecheck and build commands</td><td><span class="badge b-ok">SUCCESS</span></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Anything Else</h2>
+    <p><strong>Dependency footprint.</strong> Ten direct runtime declarations are added. The parser contributes six transitives; syntax plugins contribute no runtime dependencies beyond their parser peer. Versions shown are the resolved implementation baseline.</p>
+    <table>
+      <thead><tr><th>Role</th><th>Packages</th><th>License</th></tr></thead>
+      <tbody>
+        <tr><td>Parser</td><td><code>markdown-it 14.3.1</code></td><td>MIT</td></tr>
+        <tr><td>Highlighting</td><td><code>highlight.js 11.11.1</code></td><td>BSD-3-Clause</td></tr>
+        <tr><td>Syntax plugins</td><td><code>markdown-it-attrs 5.0.1</code>, <code>deflist 4.0.0</code>, <code>emoji 3.1.0</code>, <code>footnote 4.0.0</code>, <code>mark 4.0.0</code>, <code>sub 2.0.0</code>, <code>sup 2.0.0</code>, <code>task-lists 2.1.1</code></td><td>MIT except task-lists (ISC)</td></tr>
+        <tr><td>Parser transitives</td><td><code>argparse</code>, <code>entities</code>, <code>linkify-it</code>, <code>mdurl</code>, <code>punycode.js</code>, <code>uc.micro</code></td><td>Python-2.0, BSD-2-Clause, otherwise MIT</td></tr>
+        <tr><td>Development types</td><td><code>@types/markdown-it</code>, <code>@types/linkify-it</code>, <code>@types/mdurl</code></td><td>MIT</td></tr>
+      </tbody>
+    </table>
+    <p><strong>Markdown dialect.</strong></p>
+    <table>
+      <thead><tr><th>Group</th><th>Supported syntax</th><th>Implementation</th></tr></thead>
+      <tbody>
+        <tr><td>Basic</td><td>Headings, paragraphs, line breaks, emphasis, blockquotes, lists, code, rules, links, images, escapes, raw HTML</td><td><code>markdown-it</code> CommonMark-compatible core with HTML enabled</td></tr>
+        <tr><td>Extended core</td><td>Tables, fenced code, strikethrough, automatic URLs</td><td><code>markdown-it</code> defaults plus <code>linkify</code></td></tr>
+        <tr><td>Extended plugins</td><td>Footnotes, explicit heading IDs, definition lists, task lists, emoji, mark, subscript, superscript</td><td>Focused <code>markdown-it-*</code> plugins</td></tr>
+        <tr><td>Code</td><td>Language-qualified syntax highlighting</td><td><code>highlight.js</code>; unknown languages remain safely escaped code</td></tr>
+      </tbody>
+    </table>
+    <p class="small"><code>markdown-it</code> 15.x was intentionally not used because its current dependency chain raises the runtime floor above AgentDocs’ documented Node 20.11 minimum. The existing audit finding in <code>nanoid</code> belongs to the pre-existing Vite/PostCSS chain and is not introduced by these packages.</p>
+  </section>
+</main>
+</body>
+</html>

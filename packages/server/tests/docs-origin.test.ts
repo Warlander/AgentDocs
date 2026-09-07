@@ -65,4 +65,14 @@ describe('docs origin', () => {
     expect(await res.text()).toBe('<p>v1</p>');
     expect(await (await apps.docsApp.request('/demo/report')).text()).toBe('<p>v2</p>');
   });
+
+  it('serves rendered Markdown as HTML', async () => {
+    const form = new FormData();
+    form.append('file', new File(['# Markdown'], 'notes.md', { type: 'text/markdown' }));
+    form.append('project', 'demo');
+    await apps.api.request('/api/docs', { method: 'POST', body: form });
+    const res = await apps.docsApp.request('/demo/notes');
+    expect(res.headers.get('Content-Type')).toContain('text/html');
+    expect(await res.text()).toContain('<h1>Markdown</h1>');
+  });
 });

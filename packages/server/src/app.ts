@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { Hono } from 'hono';
@@ -8,6 +8,7 @@ import { parse as parseYaml, stringify as toYaml } from 'yaml';
 import { parse as parseToml, stringify as toToml } from 'smol-toml';
 import { loadConfig, type VaultConfig } from './config.js';
 import { clearDocs, getDoc, listDocs, openDb, setFavorite, upsertDoc, type Db } from './db.js';
+import { defaultDocumentRenderers, DocumentInputError, type DocumentRendererRegistry, titleFromFilename } from './documents.js';
 import { git } from './git.js';
 import { saveVaultDir } from './settings.js';
 import { ensureVault } from './vault.js';
@@ -24,12 +25,14 @@ export interface Apps {
 
 export interface Hooks {
   onVaultDirChanged?: (dir: string) => Promise<void>;
+  documentRenderers?: DocumentRendererRegistry;
 }
 
 export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<Apps> {
   await ensureVault(vaultDir);
   const config = loadConfig(vaultDir);
   const db = openDb(path.join(vaultDir, 'index.db'));
+  const documentRenderers = hooks.documentRenderers ?? defaultDocumentRenderers;
 
   function slugTakenOutside(slug: string, project: string) {
     const root = path.join(vaultDir, 'docs');
@@ -121,14 +124,31 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
   });
 
   api.post('/api/docs', async c => {
-    const body = await c.req.parseBody();
+    let body: Awaited<ReturnType<typeof c.req.parseBody>>;
+    try {
+      body = await c.req.parseBody();
+    } catch {
+      return c.json({ error: 'invalid multipart form data' }, 400);
+    }
     const file = body['file'];
     if (!(file instanceof File)) return c.json({ error: 'multipart field "file" required' }, 400);
 
     const project = slugify(String(body['project'] || loadConfig(vaultDir).defaultProject));
-    const title = String(body['title'] || file.name.replace(/\.html?$/i, ''));
+    const title = String(body['title'] || titleFromFilename(file.name));
     let slug = slugify(title);
-    const html = await file.text();
+    let source: string;
+    try {
+      source = new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer());
+    } catch {
+      return c.json({ error: 'document must be valid UTF-8 text' }, 422);
+    }
+    let rendered;
+    try {
+      rendered = documentRenderers.render(file.name, source, title, body['type'] ? String(body['type']) : undefined);
+    } catch (error) {
+      if (error instanceof DocumentInputError) return c.json({ error: error.message }, error.status);
+      throw error;
+    }
 
     let dir = path.join(vaultDir, 'docs', project, slug);
     const isUpdate = existsSync(dir);
@@ -138,11 +158,23 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
       while (slugTakenOutside(slug, project)) slug = `${base}-${n++}`;
       dir = path.join(vaultDir, 'docs', project, slug);
     }
+    const previousMeta = isUpdate ? readMeta(project, slug) : null;
     mkdirSync(dir, { recursive: true });
-    writeFileSync(path.join(dir, 'index.html'), html);
+    writeFileSync(path.join(dir, 'index.html'), rendered.html);
+    writeFileSync(path.join(dir, rendered.sourceFile), source);
+    const previousSource = previousMeta?.source_file;
+    if (typeof previousSource === 'string' && previousSource !== rendered.sourceFile && /^source\.[a-z0-9]+$/i.test(previousSource)) {
+      const oldSource = path.join(dir, previousSource);
+      if (existsSync(oldSource)) unlinkSync(oldSource);
+    }
 
-    const created = (isUpdate && readMeta(project, slug)?.created) || new Date().toISOString();
-    const meta: Record<string, unknown> = { title, created };
+    const created = (isUpdate && previousMeta?.created) || new Date().toISOString();
+    const meta: Record<string, unknown> = {
+      title,
+      created,
+      type: rendered.type,
+      source_file: rendered.sourceFile,
+    };
     for (const key of ['source', 'model', 'transcript'] as const) {
       if (body[key]) meta[key] = String(body[key]);
     }
@@ -168,8 +200,8 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
       lastSha = (await git(vaultDir, ['rev-parse', 'HEAD'])).stdout.trim();
     } catch { /* identical re-upload — nothing to commit */ }
 
-    await indexDoc(project, slug, title, created, html);
-    return c.json({ slug, project, title, created, update: isUpdate }, isUpdate ? 200 : 201);
+    await indexDoc(project, slug, title, created, rendered.html);
+    return c.json({ slug, project, title, created, type: rendered.type, update: isUpdate }, isUpdate ? 200 : 201);
   });
 
   api.get('/api/docs', c =>

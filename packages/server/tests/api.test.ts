@@ -23,7 +23,8 @@ afterEach(async () => {
 
 function postDoc(fields: Record<string, string>, html = '<p>hello</p>', name = 'report.html') {
   const form = new FormData();
-  form.append('file', new File([html], name, { type: 'text/html' }));
+  const mediaType = /\.md|\.markdown$/i.test(name) ? 'text/markdown' : 'text/html';
+  form.append('file', new File([html], name, { type: mediaType }));
   for (const [k, v] of Object.entries(fields)) form.append(k, v);
   return apps.api.request('/api/docs', { method: 'POST', body: form });
 }
@@ -42,10 +43,20 @@ describe('POST /api/docs', () => {
     expect(await res.text()).toContain('file');
   });
 
+  it('rejects malformed multipart without returning 500', async () => {
+    const res = await apps.api.request('/api/docs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'multipart/form-data; boundary=broken' },
+      body: '--broken\r\nnot-a-valid-part',
+    });
+    expect(res.status).toBe(400);
+  });
+
   it('creates doc on disk, commits, indexes', async () => {
     const res = await postDoc({ project: 'demo', title: 'Report' });
     expect(res.status).toBe(201);
     expect(existsSync(path.join(dir, 'docs/demo/report/index.html'))).toBe(true);
+    expect(existsSync(path.join(dir, 'docs/demo/report/source.html'))).toBe(true);
     expect(existsSync(path.join(dir, 'docs/demo/report/meta.yaml'))).toBe(true);
     const { stdout } = await execa('git', ['-C', dir, 'log', '-1', '--format=%s']);
     expect(stdout).toBe('Add demo/report');
@@ -73,6 +84,55 @@ describe('POST /api/docs', () => {
   it('defaults title to filename', async () => {
     const body = await (await postDoc({ project: 'demo' })).json();
     expect(body.title).toBe('report');
+  });
+
+  it('renders Markdown and preserves its source', async () => {
+    const res = await postDoc({ project: 'demo' }, '# Revenue\n\n**Up**', 'report.md');
+    expect(res.status).toBe(201);
+    expect(await res.json()).toMatchObject({ title: 'report', type: 'markdown' });
+    expect(readFileSync(path.join(dir, 'docs/demo/report/source.md'), 'utf8')).toContain('# Revenue');
+    expect(readFileSync(path.join(dir, 'docs/demo/report/index.html'), 'utf8')).toContain('<strong>Up</strong>');
+    expect(readFileSync(path.join(dir, 'docs/demo/report/meta.yaml'), 'utf8')).toContain('type: markdown');
+    clearDocs(apps.db);
+    expect(await apps.reindex()).toBe(1);
+    const found = await (await apps.api.request('/api/docs?q=revenue')).json();
+    expect(found).toHaveLength(1);
+  });
+
+  it('returns 415 for unsupported document types without persisting', async () => {
+    const res = await postDoc({ project: 'demo' }, 'plain text', 'report.txt');
+    expect(res.status).toBe(415);
+    expect(await res.json()).toEqual({ error: 'unsupported file extension ".txt"' });
+    expect(existsSync(path.join(dir, 'docs/demo'))).toBe(false);
+    expect(await (await apps.api.request('/api/docs')).json()).toHaveLength(0);
+  });
+
+  it('returns 422 for invalid UTF-8 without persisting', async () => {
+    const form = new FormData();
+    form.append('file', new File([new Uint8Array([0xff])], 'report.md', { type: 'text/markdown' }));
+    form.append('project', 'demo');
+    const res = await apps.api.request('/api/docs', { method: 'POST', body: form });
+    expect(res.status).toBe(422);
+    expect(await res.json()).toEqual({ error: 'document must be valid UTF-8 text' });
+    expect(existsSync(path.join(dir, 'docs/demo'))).toBe(false);
+  });
+
+  it('leaves an existing document unchanged after an invalid update', async () => {
+    await postDoc({ project: 'demo', title: 'Report' }, '<p>valid</p>');
+    const before = readFileSync(path.join(dir, 'docs/demo/report/index.html'), 'utf8');
+    const res = await postDoc({ project: 'demo', title: 'Report' }, '', 'report.html');
+    expect(res.status).toBe(422);
+    expect(readFileSync(path.join(dir, 'docs/demo/report/index.html'), 'utf8')).toBe(before);
+    expect(await logCount('docs/demo/report')).toBe(1);
+  });
+
+  it('replaces the managed source when an update changes type', async () => {
+    await postDoc({ project: 'demo', title: 'Report' }, '<p>HTML</p>');
+    const res = await postDoc({ project: 'demo', title: 'Report' }, '# Markdown', 'report.md');
+    expect(res.status).toBe(200);
+    expect(existsSync(path.join(dir, 'docs/demo/report/source.html'))).toBe(false);
+    expect(existsSync(path.join(dir, 'docs/demo/report/source.md'))).toBe(true);
+    expect(readFileSync(path.join(dir, 'docs/demo/report/meta.yaml'), 'utf8')).toContain('type: markdown');
   });
 
   it('defaults project from config', async () => {

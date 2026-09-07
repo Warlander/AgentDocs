@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { basename } from 'node:path';
+import { basename, extname } from 'node:path';
 import { Command } from 'commander';
 
 const BASE = (process.env.VAULT_URL ?? 'http://localhost:3000').replace(/\/+$/, '');
@@ -30,7 +30,7 @@ function openBrowser(url: string) {
 }
 
 const program = new Command();
-program.name('vault').description('AI HTML document vault CLI');
+program.name('vault').description('AI document vault CLI');
 
 program
   .command('add <file>')
@@ -48,7 +48,8 @@ program
       process.exit(1);
     }
     const form = new FormData();
-    form.append('file', new Blob([new Uint8Array(content)], { type: 'text/html' }), basename(file));
+    const mediaType = ['.md', '.markdown'].includes(extname(file).toLowerCase()) ? 'text/markdown' : 'text/html';
+    form.append('file', new Blob([new Uint8Array(content)], { type: mediaType }), basename(file));
     form.append('project', opts.project);
     if (opts.title) form.append('title', opts.title);
     if (opts.sourceRepo) form.append('source_repo', opts.sourceRepo);

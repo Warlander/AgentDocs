@@ -1,7 +1,8 @@
 # AgentDocs Vault
 
-Local vault for AI-generated single-file HTML documents. Plain git-versioned
-directory + web UI + CLI. Fully offline after install.
+Local vault for AI-generated HTML and Markdown documents. Every supported format
+is rendered to an HTML page, stored in a plain git-versioned directory, and shown
+through the web UI. Fully offline after install.
 
 ## Why?
 
@@ -71,6 +72,7 @@ npm run build -w vault-cli
 npm link -w vault-cli      # puts `vault` on PATH
 
 vault add sample.html --project demos [--title T] [--source-repo PATH] [--model M] [--transcript REF]
+vault add sample.md --project demos
 vault list
 vault open <slug>
 vault reindex
@@ -79,12 +81,23 @@ vault reindex
 Targets `VAULT_URL` (default `http://localhost:3000`) — works against
 bare-metal server or container, since it uploads file content.
 
+## Document formats
+
+- `.html` / `.htm` — served unchanged.
+- `.md` / `.markdown` — rendered with CommonMark plus tables, fenced and
+  highlighted code, autolinks, footnotes, heading IDs, definition lists,
+  strikethrough, task lists, emoji, mark, subscript, and superscript.
+
+New uploads keep the original UTF-8 source as `source.<ext>` and the web-ready
+result as `index.html`. Empty, invalid UTF-8, null-containing, and unsupported
+uploads return a client error without changing the vault.
+
 ## Layout
 
 - `packages/server` — Hono API (:3000) + raw document origin (:3001, restrictive CSP, iframe-sandboxed)
 - `packages/web` — React + Vite + Tailwind UI
 - `packages/cli` — `vault` CLI (thin HTTP client)
-- `vault/` — created on first run: `vault.toml`, `index.db` (gitignored, rebuildable), `docs/<project>/<slug>/`
+- `vault/` — created on first run: `vault.toml`, `index.db` (gitignored, rebuildable), `docs/<project>/<slug>/` with source, rendered `index.html`, and metadata
 
 ## License
 

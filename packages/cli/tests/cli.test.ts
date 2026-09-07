@@ -51,10 +51,10 @@ afterEach(async () => {
   if (dir) await rm(dir, { recursive: true, force: true });
 });
 
-async function makeFile(html = '<p>cli test</p>') {
+async function makeFile(content = '<p>cli test</p>', name = 'f.html') {
   dir = await mkdtemp(path.join(tmpdir(), 'cli-test-'));
-  file = path.join(dir, 'f.html');
-  writeFileSync(file, html);
+  file = path.join(dir, name);
+  writeFileSync(file, content);
   return file;
 }
 
@@ -85,6 +85,20 @@ describe('vault CLI', () => {
     expect(post.body).toContain('name="project"');
     expect(post.body).toContain('demo');
     expect(post.body).toContain('<p>cli test</p>');
+  });
+
+  it('uploads Markdown with its media type', async () => {
+    const stub = await startStub((req, res) => {
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ project: 'demo', slug: 'f', update: false }));
+    });
+    const f = await makeFile('# Markdown', 'f.md');
+    const r = await runCli(['add', f, '--project', 'demo'], { VAULT_URL: stub.url });
+    stub.close();
+    expect(r.code).toBe(0);
+    const post = stub.requests.find(q => q.method === 'POST' && q.url === '/api/docs')!;
+    expect(post.body).toContain('filename="f.md"');
+    expect(post.body).toContain('Content-Type: text/markdown');
   });
 
   it('prints Updated on re-upload', async () => {

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Extensible document renderer registry with HTML and Markdown support; Markdown includes the basic and extended syntax documented by Markdown Guide, with `sample.md` as a working example
+- Original document sources are preserved beside the rendered `index.html` artifact
 - Settings API: read/update vault directory (with live vault swap), default project, and git identity
 - Favorite documents: hover a list row and click the star — favorited docs get a golden star and tint and pin to the top of their project section; stored server-side via `PATCH /api/docs/:slug`
 - Sidebar divider between the docs list and the viewer is now draggable; width is remembered per browser
@@ -18,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Invalid, empty, non-UTF-8, null-containing, malformed multipart, and unsupported document uploads now return 4xx responses instead of causing server errors or partial writes
 - Open document now reloads automatically when a new version is pushed; version dropdown refreshes too
 - External commits pushed directly into the vault git repo are now detected and indexed automatically
 
