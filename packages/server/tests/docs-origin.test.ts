@@ -1,3 +1,4 @@
+import { readFileSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -6,6 +7,30 @@ import { createApps, type Apps } from '../src/app.js';
 
 let dir: string;
 let apps: Apps;
+
+function agentDoc(title: string) {
+  return `@schema agentdocs/v1
+@id live-doc
+@title "${title}"
+@kind specification
+@description
+This description contains ${title}. It verifies current source rendering.
+@end-description
+@evaluations
+@evaluation metric=size level=0
+The document is small.
+@end-evaluation
+@evaluation metric=complexity level=0
+The rendering path is direct.
+@end-evaluation
+@evaluation metric=risk level=0
+The behavior is isolated.
+@end-evaluation
+@end-evaluations
+@references
+@reference doc=demo/report label="Report"
+@end-references`;
+}
 
 beforeEach(async () => {
   dir = await mkdtemp(path.join(tmpdir(), 'docs-test-'));
@@ -74,5 +99,24 @@ describe('docs origin', () => {
     const res = await apps.docsApp.request('/demo/notes');
     expect(res.headers.get('Content-Type')).toContain('text/html');
     expect(await res.text()).toContain('<h1>Markdown</h1>');
+  });
+
+  it('renders latest AgentDoc source in memory while preserving historical HTML', async () => {
+    const form = new FormData();
+    form.append('file', new File([agentDoc('Original')], 'live.agentdoc', { type: 'application/vnd.agentdocs+text' }));
+    form.append('project', 'demo');
+    await apps.api.request('/api/docs', { method: 'POST', body: form });
+    const versions = await (await apps.api.request('/api/docs/live-doc/versions')).json();
+    const sourceFile = path.join(dir, 'docs/demo/live-doc/source.agentdoc');
+    const htmlFile = path.join(dir, 'docs/demo/live-doc/index.html');
+    const committedHtml = readFileSync(htmlFile, 'utf8');
+    writeFileSync(sourceFile, agentDoc('Current'));
+
+    const latest = await (await apps.docsApp.request('/demo/live-doc')).text();
+    const historical = await (await apps.docsApp.request(`/demo/live-doc?sha=${versions[0].sha}`)).text();
+    expect(latest).toContain('<title>Current</title>');
+    expect(latest).toContain("postMessage({ type: 'agentdocs:navigate'");
+    expect(historical).toContain('<title>Original</title>');
+    expect(readFileSync(htmlFile, 'utf8')).toBe(committedHtml);
   });
 });

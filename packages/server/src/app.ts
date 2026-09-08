@@ -44,6 +44,17 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
     return existsSync(f) ? parseYaml(readFileSync(f, 'utf8')) : null;
   }
 
+  function renderLatest(project: string, slug: string) {
+    const dir = path.join(vaultDir, 'docs', project, slug);
+    const meta = readMeta(project, slug);
+    if (meta?.type === 'agentdoc' && typeof meta.source_file === 'string' && /^source\.[a-z0-9]+$/i.test(meta.source_file)) {
+      const sourceFile = path.join(dir, meta.source_file);
+      if (!existsSync(sourceFile)) throw new DocumentInputError('AgentDoc source is missing', 422);
+      return documentRenderers.render(meta.source_file, readFileSync(sourceFile, 'utf8'), String(meta.title || slug), 'agentdoc');
+    }
+    return { html: readFileSync(path.join(dir, 'index.html'), 'utf8') };
+  }
+
   async function docVersions(project: string, slug: string) {
     const { stdout } = await git(vaultDir, ['log', '--format=%H%x1f%aI%x1f%s', '--', `docs/${project}/${slug}`]);
     return stdout.split('\n').filter(Boolean).map(line => {
@@ -134,8 +145,7 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
     if (!(file instanceof File)) return c.json({ error: 'multipart field "file" required' }, 400);
 
     const project = slugify(String(body['project'] || loadConfig(vaultDir).defaultProject));
-    const title = String(body['title'] || titleFromFilename(file.name));
-    let slug = slugify(title);
+    const fallbackTitle = String(body['title'] || titleFromFilename(file.name));
     let source: string;
     try {
       source = new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer());
@@ -144,17 +154,22 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
     }
     let rendered;
     try {
-      rendered = documentRenderers.render(file.name, source, title, body['type'] ? String(body['type']) : undefined);
+      rendered = documentRenderers.render(file.name, source, fallbackTitle, body['type'] ? String(body['type']) : undefined);
     } catch (error) {
       if (error instanceof DocumentInputError) return c.json({ error: error.message }, error.status);
       throw error;
     }
 
+    const title = rendered.title ?? fallbackTitle;
+    let slug = rendered.id ?? slugify(title);
     let dir = path.join(vaultDir, 'docs', project, slug);
     const isUpdate = existsSync(dir);
     if (!isUpdate) {
       const base = slug;
       let n = 2;
+      if (rendered.id && slugTakenOutside(slug, project)) {
+        return c.json({ error: `document ID "${slug}" already exists in another project` }, 409);
+      }
       while (slugTakenOutside(slug, project)) slug = `${base}-${n++}`;
       dir = path.join(vaultDir, 'docs', project, slug);
     }
@@ -175,6 +190,8 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
       type: rendered.type,
       source_file: rendered.sourceFile,
     };
+    if (rendered.id) meta.document_id = rendered.id;
+    if (rendered.schema) meta.schema = rendered.schema;
     for (const key of ['source', 'model', 'transcript'] as const) {
       if (body[key]) meta[key] = String(body[key]);
     }
@@ -201,7 +218,10 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
     } catch { /* identical re-upload — nothing to commit */ }
 
     await indexDoc(project, slug, title, created, rendered.html);
-    return c.json({ slug, project, title, created, type: rendered.type, update: isUpdate }, isUpdate ? 200 : 201);
+    return c.json({
+      slug, project, title, created, type: rendered.type, update: isUpdate,
+      ...(rendered.warnings?.length ? { warnings: rendered.warnings } : {}),
+    }, isUpdate ? 200 : 201);
   });
 
   api.get('/api/docs', c =>
@@ -249,11 +269,17 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
         if (!existsSync(htmlFile)) continue;
         const meta = readMeta(project, slug);
         const versions = await docVersions(project, slug);
+        let rendered: { html: string; title?: string };
+        try {
+          rendered = renderLatest(project, slug);
+        } catch {
+          rendered = { html: readFileSync(htmlFile, 'utf8') };
+        }
         rows.push({
           slug, project,
-          title: meta?.title ?? slug,
+          title: rendered.title ?? meta?.title ?? slug,
           created: meta?.created ?? '',
-          body: stripHtml(readFileSync(htmlFile, 'utf8')),
+          body: stripHtml(rendered.html),
           latestSha: versions[0]?.sha ?? null,
         });
       }
@@ -327,7 +353,12 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
     } else {
       const f = path.join(vaultDir, 'docs', project, slug, 'index.html');
       if (!existsSync(f)) return c.notFound();
-      html = readFileSync(f, 'utf8');
+      try {
+        html = renderLatest(project, slug).html;
+      } catch (error) {
+        if (error instanceof DocumentInputError) return c.text(error.message, error.status);
+        throw error;
+      }
     }
     return new Response(html, { headers: { ...DOC_HEADERS } });
   });

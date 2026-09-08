@@ -1,0 +1,416 @@
+@schema agentdocs/v1
+@id agentdoc-dsl-specification
+@title "AgentDoc DSL Specification"
+@kind specification
+@description
+AgentDoc is a versioned directive DSL for standardized human-facing vault documents whose HTML, CSS, navigation, and repeated summaries are generated deterministically. It reduces authoring instructions and token use while preserving Markdown, trusted HTML fragments, visual decision options, and a deliberately conspicuous CSS escape hatch.
+@end-description
+
+@references
+@reference doc=warlander/unified-documentation-standard label="Unified Documentation Standard"
+@reference doc=agentdocs/multi-format-document-architecture label="Multi-Format Document Architecture"
+@end-references
+
+@evaluations
+@evaluation metric=size level=2
+The change spans parsing, rendering, identity, latest and historical reads, search, navigation, CLI behavior, tests, and shared instructions.
+@end-evaluation
+@evaluation metric=complexity level=2
+Identity, migrations, canonical rendering, and Git-backed history must agree across every read and write path.
+@end-evaluation
+@evaluation metric=risk level=2
+Incorrect identity or migration behavior could fork documents or hide history while existing HTML and Markdown must remain unchanged.
+@end-evaluation
+@end-evaluations
+
+@decisions
+@decision id=D1 status=locked by=human
+@question
+Who owns standard document structure and presentation?
+@end-question
+@selected id=A format=markdown title="Structured source and renderer-owned presentation"
+Agents author directives, attributes, Markdown, and rare HTML/CSS fragments; the renderer owns the shell, theme, tables, badges, responsive layouts, and navigation hooks.
+@end-selected
+@end-decision
+
+@decision id=D2 status=locked by=human layout=full
+@question
+What is the canonical rendered order?
+@end-question
+@selected id=A format=markdown title="Fixed semantic order"
+Title → kind → description → references → evaluations → decision log → open decisions → locked decisions → risks → tests → implementation steps → freeform sections, with absent optional sections omitted.
+@end-selected
+@end-decision
+
+@decision id=D3 status=locked by=human
+@question
+Which initial document kinds are supported?
+@end-question
+@selected id=A format=markdown title="Five extensible kinds"
+The registry starts with `specification`, `implementation-plan`, `exploration`, `handoff`, and `design-doc`; later kinds can be added without changing authored documents.
+@end-selected
+@end-decision
+
+@decision id=D4 status=locked by=human
+@question
+How are decision state and ownership represented?
+@end-question
+@selected id=A format=markdown title="Separate state and final decider"
+Decision state is `open`, `locked`, or `removed`, while locked decisions record `human` or `ai` as the final definite decider.
+@end-selected
+@end-decision
+
+@decision id=D5 status=locked by=human
+@question
+Where is rich content permitted?
+@end-question
+@selected id=A format=markdown title="Explicit Markdown, HTML, and CSS escape hatches"
+Options and freeform sections choose Markdown or trusted HTML explicitly, while document CSS is permitted only when generated styles cannot express a necessary design.
+@end-selected
+@end-decision
+
+@decision id=D6 status=locked by=human
+@question
+How is source compatibility versioned?
+@end-question
+@selected id=A format=markdown title="Schema versions independent from Git revisions"
+Every source declares a schema version, and older supported schemas migrate sequentially into the current typed model without confusing format changes with human document revisions.
+@end-selected
+@end-decision
+
+@decision id=D7 status=locked by=human
+@question
+Which syntax keeps long Markdown and HTML blocks natural?
+@end-question
+@selected id=A format=markdown title="Line directives with verbatim bodies"
+Column-one directives avoid indentation and quoting overhead, while named end directives preserve long rich-content blocks nearly verbatim.
+@end-selected
+@end-decision
+
+@decision id=D8 status=locked by=human
+@question
+How is document identity kept stable across title edits?
+@end-question
+@selected id=A format=markdown title="Required immutable source ID"
+A required lowercase slug-like ID owns the vault path, allowing the human-readable title to change without forking history.
+@end-selected
+@end-decision
+
+@decision id=D9 status=locked by=human
+@question
+Which estimation model is used?
+@end-question
+@selected id=B format=markdown title="Size, Complexity, and Risk with reasons"
+Each applicable document records all three 0–3 ratings, and a required one-sentence rationale makes every score interpretable instead of decorative.
+@end-selected
+@end-decision
+
+@decision id=D10 status=locked by=human
+@question
+When are old schemas upgraded?
+@end-question
+@selected id=A format=markdown title="Non-mutating migration on latest reads"
+Latest reads migrate and render stored source in memory, while historical reads retain their committed HTML snapshot and no implicit read creates a Git revision.
+@end-selected
+@end-decision
+
+@decision id=D11 status=locked by=human
+@question
+Should implementation steps remain structured?
+@end-question
+@selected id=A format=markdown title="Stable steps with verification"
+Implementation plans require ordered step IDs, actions, and verification checks so execution order remains intentional and testable.
+@end-selected
+@end-decision
+
+@decision id=D12 status=locked by=ai
+@question
+Which name distinguishes semantic document kind from source format?
+@end-question
+@selected id=A format=markdown title="Use kind for semantics"
+`kind` avoids collision with the renderer registry's existing `type` field.
+@end-selected
+@end-decision
+
+@decision id=D13 status=locked by=ai
+@question
+When may invalid input mutate the vault?
+@end-question
+@selected id=A format=markdown title="Only after complete validation"
+Parsing, migration, validation, and rendering must all succeed before filesystem, database, search, or Git writes begin.
+@end-selected
+@end-decision
+
+@decision id=D14 status=locked by=ai
+@question
+How do internal references synchronize the vault UI?
+@end-question
+@selected id=A format=markdown title="Fallback links plus validated host messages"
+Rendered references remain usable URLs and also send a validated navigation event so iframe content, selected row, header, search, and version controls move together.
+@end-selected
+@end-decision
+
+@decision id=D15 status=locked by=human
+@question
+Which source order is semantically meaningful?
+@end-question
+@selected id=A format=markdown title="Only intentionally ordered siblings"
+Top-level blocks and named child fields are position-independent; only options, implementation steps, and freeform sections preserve authored sibling order.
+@end-selected
+@end-decision
+
+@decision id=D16 status=locked by=human
+@question
+When should agents reread generated documents in a headless browser?
+@end-question
+@selected id=A format=markdown title="Only for a stated visual or runtime concern"
+Normal verification uses parser, renderer, and structural tests; browser rereads require a concrete layout, interaction, or rendering concern that deterministic checks cannot answer.
+@end-selected
+@end-decision
+
+@decision id=D17 status=locked by=human layout=full
+@question
+Which standard appearance should generated tables use?
+@end-question
+@selected id=F format=html title="Tinted index column with alternating rows"
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>ID</th><th>Risk</th><th>Severity</th><th>Test</th></tr></thead>
+    <tbody>
+      <tr><td>R1</td><td>Duplicate document history</td><td>2</td><td>T4</td></tr>
+      <tr><td>R4</td><td>Stale navigation selection</td><td>2</td><td>T5</td></tr>
+      <tr><td>R8</td><td>Reduced visual readability</td><td>1</td><td>T12</td></tr>
+    </tbody>
+  </table>
+</div>
+<p>The table uses a contained header and border, a continuous tinted identity column, and subtly alternating row backgrounds outside that column.</p>
+@end-selected
+@end-decision
+
+@decision id=D18 status=locked by=human layout=full
+@question
+Which standard appearance should evaluations use?
+@end-question
+@selected id=E format=html title="Reasoned capsule rows"
+<div class="evaluation-panel">
+  <article class="evaluation-row tone-warn">
+    <strong class="evaluation-metric">SIZE</strong>
+    <div class="evaluation-scale" aria-label="size 2 of 3"><span>0</span><span>1</span><span class="active">2</span><span>3</span></div>
+    <p class="evaluation-reason">The change crosses several systems.</p>
+  </article>
+  <article class="evaluation-row tone-ok">
+    <strong class="evaluation-metric">COMPLEXITY</strong>
+    <div class="evaluation-scale" aria-label="complexity 1 of 3"><span>0</span><span class="active">1</span><span>2</span><span>3</span></div>
+    <p class="evaluation-reason">The implementation path is clear.</p>
+  </article>
+  <article class="evaluation-row tone-bad">
+    <strong class="evaluation-metric">RISK</strong>
+    <div class="evaluation-scale" aria-label="risk 3 of 3"><span>0</span><span>1</span><span>2</span><span class="active">3</span></div>
+    <p class="evaluation-reason">The affected history behavior needs careful verification.</p>
+  </article>
+</div>
+<p>Each metric keeps its semantic green, yellow, or red color; the active segment in the connected 0–3 capsule is the sole score, and the rationale sits directly beneath the scale.</p>
+@end-selected
+@end-decision
+@decision id=D19 status=locked by=human
+@question
+How should expanded locked decisions use horizontal space?
+@end-question
+@selected id=A format=markdown title="Three-column grid with local full-width override"
+Locked decisions tile up to three per row by default, collapse responsively, and accept `layout=full` on an individual decision when its selected content needs extra horizontal space.
+@end-selected
+@end-decision
+
+@decision id=D20 status=locked by=human
+@question
+Where should acceptance criteria be represented?
+@end-question
+@selected id=A format=markdown title="Testing is the acceptance contract"
+Acceptance criteria become explicit test rows with a tester, method, and status instead of a separate freeform section.
+@end-selected
+@end-decision
+
+@decision id=D21 status=locked by=human
+@question
+How should a locked decision card distinguish its semantic parts?
+@end-question
+@selected id=A format=markdown title="Labeled problem, decision, and description hierarchy"
+Each card labels and separates the original problem, places the winning decision in a tinted inset panel, and presents its supporting description below a divider.
+@end-selected
+@end-decision
+
+@end-decisions
+
+@risks
+@risk id=R1 kind=edge-case severity=2 tests=T4
+@description
+A title rename could create a duplicate history instead of updating one stable document.
+@end-description
+@end-risk
+@risk id=R2 kind=edge-case severity=2 tests=T2
+@description
+An unknown or malformed schema could be guessed or partially persisted.
+@end-description
+@end-risk
+@risk id=R3 kind=edge-case severity=2 tests=T1,T3
+@description
+Duplicate IDs, broken test links, or invalid decision-state combinations could produce misleading summaries.
+@end-description
+@end-risk
+@risk id=R4 kind=edge-case severity=2 tests=T5
+@description
+An internal link could navigate only the iframe and leave the previous sidebar row selected.
+@end-description
+@end-risk
+@risk id=R5 kind=general severity=2 tests=T6
+@description
+Rich HTML or malformed CSS could execute behavior or escape the renderer-owned style scope.
+@end-description
+@end-risk
+@risk id=R6 kind=general severity=1 tests=T8,T9
+@description
+Source-aware latest rendering could change historical snapshots or regress existing HTML and Markdown documents.
+@end-description
+@end-risk
+@risk id=R7 kind=edge-case severity=1 tests=T11
+@description
+Moving metadata or named child blocks could accidentally change semantics despite the position-independent contract.
+@end-description
+@end-risk
+@risk id=R8 kind=general severity=1 tests=T12
+@description
+A prettier table or evaluation treatment could reduce density, contrast, or narrow-screen readability.
+@end-description
+@end-risk
+@end-risks
+
+@tests
+@test id=T1 tester=unit status=success
+@description
+Parser fields, vocabularies, IDs, cross-references, escaping, and aggregated diagnostics.
+@end-description
+@method
+Run table-driven valid and invalid AgentDoc fixtures.
+@end-method
+@end-test
+@test id=T2 tester=unit status=success
+@description
+Current-schema parsing, unknown-version rejection, and non-mutating latest rendering.
+@end-description
+@method
+Open v1 and unsupported fixtures and compare the source and committed HTML before and after reads.
+@end-method
+@end-test
+@test id=T3 tester=unit status=success
+@description
+Open, locked, and removed decision invariants and canonical rendering.
+@end-description
+@method
+Assert log order, option layouts, AI opinion, selected winner, and removed outcomes in rendered output.
+@end-method
+@end-test
+@test id=T4 tester=unit status=success
+@description
+Canonical title propagation and stable identity.
+@end-description
+@method
+Upload two titles under one ID and assert one path, history, metadata record, HTML title, and search result.
+@end-method
+@end-test
+@test id=T5 tester=ai status=success
+@description
+Internal reference event generation, validation, destination lookup, and host selection reset.
+@end-description
+@method
+Assert the renderer bridge and message validator, then inspect the host handler's destination lookup and selected-state reset.
+@end-method
+@end-test
+@test id=T6 tester=unit status=success
+@description
+HTML and CSS escape-hatch boundaries.
+@end-description
+@method
+Accept trusted visual fragments and reject scripts, styles, event handlers, JavaScript URLs, and unbalanced CSS scope escapes.
+@end-method
+@end-test
+@test id=T7 tester=ai status=success
+@description
+Canonical section order and responsive option layouts.
+@end-description
+@method
+Inspect deterministic heading order and generated grid, full-width, and narrow-screen CSS rules.
+@end-method
+@end-test
+@test id=T8 tester=unit status=success
+@description
+Latest source rendering versus SHA-pinned historical HTML.
+@end-description
+@method
+Change source without rewriting the committed artifact and assert latest and historical responses diverge correctly.
+@end-method
+@end-test
+@test id=T9 tester=unit status=success
+@description
+HTML and Markdown regression safety across upload, render, history, diff, reindex, and document-origin paths.
+@end-description
+@method
+Run the complete workspace test suite, typecheck, and production build.
+@end-method
+@end-test
+@test id=T10 tester=ai status=success
+@description
+Shared authoring instructions omit generated presentation boilerplate and routine browser rereads.
+@end-description
+@method
+Validate the replacement AgentDoc skill and synchronize the source-managed configuration.
+@end-method
+@end-test
+@test id=T11 tester=unit status=success
+@description
+Position-independent source semantics.
+@end-description
+@method
+Permute top-level directives and unordered named children, then assert an identical normalized model.
+@end-method
+@end-test
+@test id=T12 tester=unit status=success
+@description
+The selected table, evaluation, and locked-decision treatments preserve identity, status color, semantic hierarchy, rationale proximity, and narrow-screen behavior.
+@end-description
+@method
+Assert contained tables with tinted first columns and alternating rows, colored 0–3 evaluation capsules with no duplicate score, and labeled problem, decision, and description card regions.
+@end-method
+@end-test
+@end-tests
+
+@section format=markdown title="Directive Grammar"
+- A directive begins at column one with `@`; directive and attribute names use lowercase kebab-case.
+- `@schema`, `@id`, `@title`, and `@kind` take one scalar; values containing spaces are quoted, with only `\"` and `\\` escapes.
+- Complex directives use unique named attributes whose order has no meaning.
+- Content blocks close with their matching named `@end-*` directive; bare text outside a content block is invalid.
+- Markdown, HTML, and CSS bodies are verbatim until their matching terminator; `@@` at column one emits one literal leading `@`.
+- The parser resolves names and scopes into a typed model before rendering; top-level placement never controls output order.
+@end-section
+
+@section format=markdown title="Normative Content Rules"
+- Title, kind, schema, immutable ID, and a one-paragraph description are required; two to three description sentences are a lint rule.
+- Specifications and implementation plans require Size, Complexity, and Risk evaluations; other kinds may omit the trio as a whole.
+- Open decisions require at least two ordered options, a valid AI leaning, and an AI comment; `grid` shows up to three cards and `full` uses one row each.
+- Locked decisions retain one selected option and final decider, visually separate the problem, winning decision, and description, tile three per row by default, and may use `layout=full`; removed decisions retain only their question and reason in the log.
+- Risks use stable `R` IDs, `general|edge-case`, severity 0–3, a description, and one or more valid `T` IDs.
+- Acceptance criteria are test rows with explicit methods and statuses, never a separate freeform section.
+- Standard tables use a contained header and border, a tinted identity column, and alternating body rows.
+- Evaluations use colored reasoned rows with a connected 0–3 capsule whose active segment is the sole score, with the rationale directly beneath its metric scale.
+- Freeform sections preserve source order and choose exactly one Markdown or HTML body; scripts and style behavior are invalid.
+- Unknown directives, attributes, values, duplicates, broken references, mismatched terminators, and unsafe fragments are hard errors reported before mutation.
+@end-section
+
+@section format=markdown title="Integration and Compatibility"
+- `.agentdoc` is a third renderer format; existing HTML and Markdown storage and rendering remain unchanged.
+- AgentDoc `id` and `title` override filename and upload-title metadata; IDs are globally unique under the vault's existing slug API and collisions return 409.
+- Uploads store source plus a committed HTML snapshot only after successful validation.
+- Latest reads and reindexing parse and render current source in memory; SHA-pinned reads serve the committed HTML snapshot.
+- The migration registry advances supported schemas sequentially without rewriting source during reads; the initial release has no legacy schema migration.
+- Internal references use `project/id`, a fallback URL, and a validated iframe-to-host message.
+- The shared agent configuration uses the smaller AgentDoc authoring skill and treats HTML as a legacy or explicitly requested raw format.
+@end-section

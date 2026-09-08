@@ -29,6 +29,27 @@ function postDoc(fields: Record<string, string>, html = '<p>hello</p>', name = '
   return apps.api.request('/api/docs', { method: 'POST', body: form });
 }
 
+function agentDoc(title: string, id = 'agent-report') {
+  return `@schema agentdocs/v1
+@id ${id}
+@title "${title}"
+@kind specification
+@description
+This specification verifies AgentDoc integration. Its metadata comes from source.
+@end-description
+@evaluations
+@evaluation metric=size level=0
+The document is small.
+@end-evaluation
+@evaluation metric=complexity level=0
+The implementation path is direct.
+@end-evaluation
+@evaluation metric=risk level=0
+The behavior is isolated.
+@end-evaluation
+@end-evaluations`;
+}
+
 async function logCount(p: string) {
   const { stdout } = await execa('git', ['-C', dir, 'log', '--format=%H', '--', p]);
   return stdout.split('\n').filter(Boolean).length;
@@ -97,6 +118,52 @@ describe('POST /api/docs', () => {
     expect(await apps.reindex()).toBe(1);
     const found = await (await apps.api.request('/api/docs?q=revenue')).json();
     expect(found).toHaveLength(1);
+  });
+
+  it('uses AgentDoc source as canonical title and identity', async () => {
+    const res = await postDoc({ project: 'demo', title: 'Ignored upload title' }, agentDoc('Canonical title'), 'arbitrary.agentdoc');
+    expect(res.status).toBe(201);
+    expect(await res.json()).toMatchObject({ slug: 'agent-report', title: 'Canonical title', type: 'agentdoc' });
+    expect(readFileSync(path.join(dir, 'docs/demo/agent-report/source.agentdoc'), 'utf8')).toContain('@title "Canonical title"');
+    const meta = readFileSync(path.join(dir, 'docs/demo/agent-report/meta.yaml'), 'utf8');
+    expect(meta).toContain('document_id: agent-report');
+    expect(meta).toContain('schema: agentdocs/v1');
+  });
+
+  it('keeps one AgentDoc history when its title changes', async () => {
+    await postDoc({ project: 'demo' }, agentDoc('First title'), 'one.agentdoc');
+    const res = await postDoc({ project: 'demo' }, agentDoc('Renamed title'), 'two.agentdoc');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ slug: 'agent-report', title: 'Renamed title', update: true });
+    expect(await logCount('docs/demo/agent-report')).toBe(2);
+    const docs = await (await apps.api.request('/api/docs')).json();
+    expect(docs).toHaveLength(1);
+    expect(docs[0].title).toBe('Renamed title');
+  });
+
+  it('rejects globally conflicting AgentDoc IDs instead of changing them', async () => {
+    await postDoc({ project: 'demo' }, agentDoc('First', 'shared-id'), 'one.agentdoc');
+    const res = await postDoc({ project: 'other' }, agentDoc('Second', 'shared-id'), 'two.agentdoc');
+    expect(res.status).toBe(409);
+    expect(await res.text()).toContain('already exists in another project');
+    expect(existsSync(path.join(dir, 'docs/other/shared-id'))).toBe(false);
+  });
+
+  it('rejects invalid AgentDoc before persistence', async () => {
+    const res = await postDoc({ project: 'demo' }, '@schema agentdocs/v1\n@id broken', 'broken.agentdoc');
+    expect(res.status).toBe(422);
+    expect(existsSync(path.join(dir, 'docs/demo/broken'))).toBe(false);
+  });
+
+  it('reindexes AgentDoc title and body from current source', async () => {
+    await postDoc({ project: 'demo' }, agentDoc('Original title'), 'report.agentdoc');
+    const sourceFile = path.join(dir, 'docs/demo/agent-report/source.agentdoc');
+    writeFileSync(sourceFile, agentDoc('Source-only title').replace('AgentDoc integration', 'fresh searchable content'));
+    clearDocs(apps.db);
+    expect(await apps.reindex()).toBe(1);
+    const found = await (await apps.api.request('/api/docs?q=searchable')).json();
+    expect(found).toHaveLength(1);
+    expect(found[0].title).toBe('Source-only title');
   });
 
   it('returns 415 for unsupported document types without persisting', async () => {

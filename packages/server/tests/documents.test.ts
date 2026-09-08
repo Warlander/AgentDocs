@@ -87,6 +87,34 @@ Footnote.[^1]
     const registry = new DocumentRendererRegistry([renderer]);
     expect(registry.render('source.txt', 'shape', 'Diagram', 'diagram').html).toBe('<svg>shape</svg>');
   });
+
+  it('uses AgentDoc title and identity from source', () => {
+    const source = `@schema agentdocs/v1
+@id source-owned-id
+@title "Source-owned title"
+@kind specification
+@description
+The source owns its canonical metadata. Upload arguments cannot replace it.
+@end-description
+@evaluations
+@evaluation metric=size level=0
+The document is small.
+@end-evaluation
+@evaluation metric=complexity level=0
+The rendering path is direct.
+@end-evaluation
+@evaluation metric=risk level=0
+The behavior is isolated.
+@end-evaluation
+@end-evaluations`;
+    expect(defaultDocumentRenderers.render('wrong-name.agentdoc', source, 'Wrong title')).toMatchObject({
+      type: 'agentdoc',
+      sourceFile: 'source.agentdoc',
+      title: 'Source-owned title',
+      id: 'source-owned-id',
+      schema: 'agentdocs/v1',
+    });
+  });
 });
 
 describe('titleFromFilename', () => {
@@ -94,6 +122,7 @@ describe('titleFromFilename', () => {
     ['report.html', 'report'],
     ['report.md', 'report'],
     ['report.markdown', 'report'],
+    ['report.agentdoc', 'report'],
   ])('strips the extension from %s', (filename, title) => {
     expect(titleFromFilename(filename)).toBe(title);
   });

@@ -9,18 +9,31 @@ import markdownItMark from 'markdown-it-mark';
 import markdownItSub from 'markdown-it-sub';
 import markdownItSup from 'markdown-it-sup';
 import markdownItTaskLists from 'markdown-it-task-lists';
+import { renderAgentDoc } from './agentdoc.js';
+
+export interface DocumentRenderOutput {
+  html: string;
+  title?: string;
+  id?: string;
+  schema?: string;
+  warnings?: string[];
+}
 
 export interface DocumentRenderer {
   type: string;
   extensions: readonly string[];
   sourceExtension: string;
-  render(source: string, title: string): string;
+  render(source: string, title: string): string | DocumentRenderOutput;
 }
 
 export interface RenderedDocument {
   type: string;
   sourceFile: string;
   html: string;
+  title?: string;
+  id?: string;
+  schema?: string;
+  warnings?: string[];
 }
 
 export class DocumentInputError extends Error {
@@ -126,9 +139,15 @@ export class DocumentRendererRegistry {
     if (source.includes('\0')) throw new DocumentInputError('document contains null bytes', 422);
 
     try {
-      const html = renderer.render(source, title);
+      const output = renderer.render(source, title);
+      const html = typeof output === 'string' ? output : output.html;
       if (!html.trim()) throw new Error('renderer produced no HTML');
-      return { type: renderer.type, sourceFile: `source${renderer.sourceExtension}`, html };
+      return {
+        type: renderer.type,
+        sourceFile: `source${renderer.sourceExtension}`,
+        html,
+        ...(typeof output === 'string' ? {} : { title: output.title, id: output.id, schema: output.schema, warnings: output.warnings }),
+      };
     } catch (error) {
       if (error instanceof DocumentInputError) throw error;
       const message = error instanceof Error ? error.message : 'unknown rendering error';
@@ -149,6 +168,12 @@ export const defaultDocumentRenderers = new DocumentRendererRegistry([
     extensions: ['.md', '.markdown'],
     sourceExtension: '.md',
     render: renderMarkdown,
+  },
+  {
+    type: 'agentdoc',
+    extensions: ['.agentdoc'],
+    sourceExtension: '.agentdoc',
+    render: source => renderAgentDoc(source, value => markdown.render(value)),
   },
 ]);
 

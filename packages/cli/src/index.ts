@@ -35,7 +35,7 @@ program.name('vault').description('AI document vault CLI');
 program
   .command('add <file>')
   .option('--project <name>', 'project folder', 'misc')
-  .option('--title <title>', 'document title (default: file name)')
+  .option('--title <title>', 'HTML/Markdown title (default: file name; AgentDoc title comes from source)')
   .option('--source-repo <path>', 'code repo the doc was generated from')
   .option('--model <name>', 'model that generated the doc')
   .option('--transcript <ref>', 'transcript reference')
@@ -48,7 +48,12 @@ program
       process.exit(1);
     }
     const form = new FormData();
-    const mediaType = ['.md', '.markdown'].includes(extname(file).toLowerCase()) ? 'text/markdown' : 'text/html';
+    const extension = extname(file).toLowerCase();
+    const mediaType = ['.md', '.markdown'].includes(extension)
+      ? 'text/markdown'
+      : extension === '.agentdoc'
+        ? 'application/vnd.agentdocs+text'
+        : 'text/html';
     form.append('file', new Blob([new Uint8Array(content)], { type: mediaType }), basename(file));
     form.append('project', opts.project);
     if (opts.title) form.append('title', opts.title);
@@ -57,6 +62,7 @@ program
     if (opts.transcript) form.append('transcript', opts.transcript);
     const doc = await (await api('/api/docs', { method: 'POST', body: form })).json();
     console.log(`${doc.update ? 'Updated' : 'Added'} ${doc.project}/${doc.slug}`);
+    for (const warning of doc.warnings ?? []) console.warn(`Warning: ${warning}`);
   });
 
 program

@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- AgentDoc v1: a validated directive DSL with canonical metadata, five document kinds, evaluations, decision lifecycles, risks, tests, implementation steps, rich Markdown/HTML sections, scoped CSS, and deterministic rendering
+- Source-aware latest rendering and schema migration infrastructure; historical revisions continue to serve their committed HTML snapshots
+- Vault-native AgentDoc references with synchronized iframe, sidebar, header, search, and version navigation
 - Extensible document renderer registry with HTML and Markdown support; Markdown includes the basic and extended syntax documented by Markdown Guide, with `sample.md` as a working example
 - Original document sources are preserved beside the rendered `index.html` artifact
 - Settings API: read/update vault directory (with live vault swap), default project, and git identity
@@ -20,12 +23,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Clicking an internal document reference now selects the destination in the vault UI, so the previously selected document can be clicked to return
 - Invalid, empty, non-UTF-8, null-containing, malformed multipart, and unsupported document uploads now return 4xx responses instead of causing server errors or partial writes
 - Open document now reloads automatically when a new version is pushed; version dropdown refreshes too
 - External commits pushed directly into the vault git repo are now detected and indexed automatically
 
 ### Changed
 
+- AgentDoc source owns its immutable vault ID and editable title; conflicting IDs are rejected instead of silently suffixed
+- Locked decisions now use a responsive three-column grid with distinct problem, decision, and description regions; individual `layout=full` entries render first to avoid partial rows, and acceptance criteria belong in structured tests
+- Standard tables now combine a tinted identity column with alternating rows; evaluations use colored 0–3 capsule scales as the sole score with reasoning directly beneath each metric
+- Shared agent authoring guidance now targets concise `.agentdoc` source and avoids routine headless-browser document rereads
 - Docker container now restarts automatically on boot (`unless-stopped`)
 - Projects in the docs list are now ordered by most recent document instead of alphabetically
 - Empty-state text now hints that agents can upload documents to the vault

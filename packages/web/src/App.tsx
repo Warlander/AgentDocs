@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { html as diff2html } from 'diff2html';
 import 'diff2html/bundles/css/diff2html.min.css';
+import { parseVaultNavigation } from './vault-navigation.js';
 
 interface Doc {
   slug: string;
@@ -104,6 +105,7 @@ export default function App() {
   });
   const [dragging, setDragging] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const settingsOrig = useRef<Settings | null>(null);
   const loadRef = useRef<() => void>(() => {});
   const prevShas = useRef(new Map<string, string | null>());
@@ -235,6 +237,25 @@ export default function App() {
     const res = await fetch(`/api/docs/${d.slug}/versions`);
     setVersions(await res.json());
   };
+
+  useEffect(() => {
+    const onMessage = async (event: MessageEvent) => {
+      if (event.source !== iframeRef.current?.contentWindow) return;
+      const destination = parseVaultNavigation(event.data);
+      if (!destination) return;
+      try {
+        const res = await fetch(`/api/docs/${destination.slug}`);
+        if (!res.ok) return;
+        const target: Doc = await res.json();
+        if (target.project !== destination.project) return;
+        setQ('');
+        await load('');
+        await select(target);
+      } catch { /* destination disappeared during navigation */ }
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, []);
 
   const openSettings = async () => {
     setSettingsError('');
@@ -399,6 +420,7 @@ export default function App() {
               <div className="flex-1 overflow-auto bg-white" dangerouslySetInnerHTML={{ __html: diffView }} />
             ) : (
               <iframe
+                ref={iframeRef}
                 key={`${selected.slug}:${sha || docs.find(d => docKey(d) === docKey(selected))?.latestSha || ''}`}
                 sandbox="allow-scripts"
                 src={`${origin}/${selected.project}/${selected.slug}${sha ? `?sha=${sha}` : ''}`}

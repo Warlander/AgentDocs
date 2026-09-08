@@ -101,6 +101,21 @@ describe('vault CLI', () => {
     expect(post.body).toContain('Content-Type: text/markdown');
   });
 
+  it('uploads AgentDoc with its media type', async () => {
+    const stub = await startStub((req, res) => {
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ project: 'demo', slug: 'source-id', update: false }));
+    });
+    const f = await makeFile('@schema agentdocs/v1', 'source.agentdoc');
+    const r = await runCli(['add', f, '--project', 'demo'], { VAULT_URL: stub.url });
+    stub.close();
+    expect(r.code).toBe(0);
+    const post = stub.requests.find(q => q.method === 'POST' && q.url === '/api/docs')!;
+    expect(post.body).toContain('filename="source.agentdoc"');
+    expect(post.body).toContain('Content-Type: application/vnd.agentdocs+text');
+    expect(post.body).not.toContain('name="title"');
+  });
+
   it('prints Updated on re-upload', async () => {
     const stub = await startStub((req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
