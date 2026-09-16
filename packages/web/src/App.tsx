@@ -437,7 +437,7 @@ export default function App() {
                 onLoad={() => iframeRef.current?.contentWindow?.postMessage({
                   type: 'agentdocs:restore-scroll',
                   ratio: scrollRatioRef.current,
-                }, origin)}
+                }, '*')}
                 className={`flex-1 bg-white ${dragging ? 'pointer-events-none' : ''}`}
                 title={selected.title}
               />
