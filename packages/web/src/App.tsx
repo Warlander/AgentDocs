@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { html as diff2html } from 'diff2html';
 import 'diff2html/bundles/css/diff2html.min.css';
+import { documentUrl } from './document-url.js';
 import { parseVaultNavigation } from './vault-navigation.js';
 
 interface Doc {
@@ -354,7 +355,7 @@ export default function App() {
             <div className="flex items-center gap-2 p-2 border-b border-neutral-700">
               <button
                 onClick={() => {
-                  const url = `${origin}/${selected.project}/${selected.slug}${sha ? `?sha=${sha}` : ''}`;
+                  const url = documentUrl(origin, selected, sha);
                   navigator.clipboard.writeText(url).then(() => {
                     setCopied(true);
                     setTimeout(() => setCopied(false), 150);
@@ -423,7 +424,7 @@ export default function App() {
                 ref={iframeRef}
                 key={`${selected.slug}:${sha || docs.find(d => docKey(d) === docKey(selected))?.latestSha || ''}`}
                 sandbox="allow-scripts"
-                src={`${origin}/${selected.project}/${selected.slug}${sha ? `?sha=${sha}` : ''}`}
+                src={documentUrl(origin, selected, sha)}
                 className={`flex-1 bg-white ${dragging ? 'pointer-events-none' : ''}`}
                 title={selected.title}
               />

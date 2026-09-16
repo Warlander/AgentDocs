@@ -49,6 +49,7 @@ describe('AgentDoc parser', () => {
     expect(rendered).toContain('<div class="table-wrap"><table>');
     expect(rendered).toContain('.table-wrap tbody tr:nth-child(even)');
     expect(rendered).toContain('.table-wrap table { display: table; width: 100%;');
+    expect(rendered).toContain('img { display: block; max-width: 100%; height: auto; }');
   });
 
   it('parses the required specification fields', () => {

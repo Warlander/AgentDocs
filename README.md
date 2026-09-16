@@ -74,6 +74,7 @@ npm link -w vault-cli      # puts `vault` on PATH
 vault add sample.html --project demos [--title T] [--source-repo PATH] [--model M] [--transcript REF]
 vault add sample.md --project demos
 vault add sample.agentdoc --project demos
+vault add ./document-bundle --project demos
 vault list
 vault open <slug>
 vault reindex
@@ -97,6 +98,27 @@ bare-metal server or container, since it uploads file content.
 New uploads keep the original UTF-8 source as `source.<ext>` and the web-ready
 result as `index.html`. Empty, invalid UTF-8, null-containing, and unsupported
 uploads return a client error without changing the vault.
+
+`vault add <directory>` uploads a document bundle. The directory must contain
+exactly one supported document at its root and may contain `.css`, `.json`,
+`.png`, `.jpg`, `.jpeg`, `.webp`, and `.gif` companions. Relative references are
+preserved, so Markdown and AgentDoc can use `![Panel](assets/panel.png)` and HTML
+can use `<link rel="stylesheet" href="styles.css">`. Bundle updates replace the
+previous companion set, including deleting files that are no longer present.
+
+```text
+document-bundle/
+├── review.agentdoc
+└── assets/
+    └── panel.png
+```
+
+Inside an AgentDoc Markdown section (or any Markdown document), reference the
+companion normally:
+
+```markdown
+![Proposed panel](assets/panel.png)
+```
 
 ### AgentDoc example
 

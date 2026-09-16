@@ -656,6 +656,7 @@ h1 { font-size: 1.75rem; font-weight: 600; border-bottom: 2px solid currentColor
 h2 { font-size: 1.35rem; font-weight: 600; margin-top: 2.5rem; }
 h3 { font-size: 1.15rem; font-weight: 600; margin-top: 1.5rem; }
 a { color: var(--accent); }
+img { display: block; max-width: 100%; height: auto; }
 code, pre { font-family: 'SF Mono', Monaco, Consolas, monospace; background: var(--code-bg); border-radius: 4px; }
 code { padding: .1em .3em; } pre { padding: 1rem; overflow-x: auto; }
 table { border-collapse: collapse; display: block; max-width: 100%; overflow-x: auto; margin: 1rem 0; font-variant-numeric: tabular-nums; }

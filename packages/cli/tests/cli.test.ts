@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -56,6 +56,15 @@ async function makeFile(content = '<p>cli test</p>', name = 'f.html') {
   file = path.join(dir, name);
   writeFileSync(file, content);
   return file;
+}
+
+async function makeBundle(primary = 'report.html') {
+  dir = await mkdtemp(path.join(tmpdir(), 'cli-test-'));
+  writeFileSync(path.join(dir, primary), '<link rel="stylesheet" href="styles.css"><img src="assets/panel.png">');
+  mkdirSync(path.join(dir, 'assets'));
+  writeFileSync(path.join(dir, 'assets', 'panel.png'), new Uint8Array([1, 2, 3]));
+  writeFileSync(path.join(dir, 'styles.css'), 'body{}');
+  return dir;
 }
 
 describe('vault CLI', () => {
@@ -127,6 +136,57 @@ describe('vault CLI', () => {
     expect(r.stdout).toContain('Updated demo/f');
   });
 
+  it.each(['report.html', 'report.md', 'report.agentdoc'])('uploads a directory bundle with one root %s', async primary => {
+    const stub = await startStub((_req, res) => {
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ project: 'demo', slug: 'report', update: false }));
+    });
+    const bundle = await makeBundle(primary);
+    const r = await runCli(['add', bundle, '--project', 'demo'], { VAULT_URL: stub.url });
+    stub.close();
+    expect(r.code).toBe(0);
+    const post = stub.requests.find(q => q.method === 'POST')!;
+    expect(post.body).toContain(`filename="${primary}"`);
+    expect(post.body).toContain('name="bundle_manifest"');
+    expect(post.body).toContain('assets/panel.png');
+    expect(post.body).toContain('styles.css');
+    expect(post.body).toContain('name="asset_0"');
+    expect(post.body).toContain('name="asset_1"');
+    expect(post.body.indexOf('"path":"assets/panel.png"')).toBeLessThan(post.body.indexOf('"path":"styles.css"'));
+  });
+
+  it('rejects zero and multiple root documents before upload', async () => {
+    const stub = await startStub((_req, res) => res.end('{}'));
+    dir = await mkdtemp(path.join(tmpdir(), 'cli-test-'));
+    writeFileSync(path.join(dir, 'styles.css'), 'body{}');
+    const zero = await runCli(['add', dir], { VAULT_URL: stub.url });
+    writeFileSync(path.join(dir, 'one.md'), '# One');
+    writeFileSync(path.join(dir, 'two.html'), '<p>Two</p>');
+    const multiple = await runCli(['add', dir], { VAULT_URL: stub.url });
+    stub.close();
+    expect(zero.code).toBe(1);
+    expect(zero.stderr).toContain('candidates: (none)');
+    expect(multiple.code).toBe(1);
+    expect(multiple.stderr).toContain('one.md, two.html');
+    expect(stub.requests).toHaveLength(0);
+  });
+
+  it('rejects unsupported companions and symlinks before upload', async () => {
+    const stub = await startStub((_req, res) => res.end('{}'));
+    const bundle = await makeBundle();
+    writeFileSync(path.join(bundle, 'script.js'), 'alert(1)');
+    const unsupported = await runCli(['add', bundle], { VAULT_URL: stub.url });
+    expect(unsupported.code).toBe(1);
+    expect(unsupported.stderr).toContain('unsupported bundle file');
+    await rm(path.join(bundle, 'script.js'));
+    symlinkSync(path.join(bundle, 'styles.css'), path.join(bundle, 'linked.css'));
+    const symlink = await runCli(['add', bundle], { VAULT_URL: stub.url });
+    stub.close();
+    expect(symlink.code).toBe(1);
+    expect(symlink.stderr).toContain('symlinks');
+    expect(stub.requests).toHaveLength(0);
+  });
+
   it('passes title/model/transcript metadata', async () => {
     const stub = await startStub((req, res) => {
       res.writeHead(201, { 'Content-Type': 'application/json' });
@@ -152,6 +212,6 @@ describe('vault CLI', () => {
     const r = await runCli(['open', 'report'], { VAULT_URL: stub.url });
     stub.close();
     expect(r.code).toBe(0);
-    expect(r.stdout.trim()).toMatch(/http:\/\/127\.0\.0\.1:3001\/demo\/report/);
+    expect(r.stdout.trim()).toMatch(/http:\/\/127\.0\.0\.1:3001\/demo\/report\/$/);
   });
 });

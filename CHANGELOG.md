@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Document bundles: `vault add <directory>` versions and serves relative CSS, JSON, and image companions with current and historical documents
 - AgentDoc v1: a validated directive DSL with canonical metadata, five document kinds, evaluations, decision lifecycles, risks, tests, implementation steps, rich Markdown/HTML sections, scoped CSS, and deterministic rendering
 - Source-aware latest rendering and schema migration infrastructure; historical revisions continue to serve their committed HTML snapshots
 - Vault-native AgentDoc references with synchronized iframe, sidebar, header, search, and version navigation

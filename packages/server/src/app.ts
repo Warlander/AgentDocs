@@ -1,13 +1,15 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { Hono } from 'hono';
 import { serveStatic } from '@hono/node-server/serve-static';
+import { bodyLimit } from 'hono/body-limit';
 import { execa } from 'execa';
 import { parse as parseYaml, stringify as toYaml } from 'yaml';
 import { parse as parseToml, stringify as toToml } from 'smol-toml';
 import { loadConfig, type VaultConfig } from './config.js';
 import { clearDocs, getDoc, listDocs, openDb, setFavorite, upsertDoc, type Db } from './db.js';
+import { BundleInputError, MAX_BUNDLE_REQUEST_BYTES, bundleContentType, parseBundleFiles, validateBundlePath } from './bundles.js';
 import { defaultDocumentRenderers, DocumentInputError, type DocumentRendererRegistry, titleFromFilename } from './documents.js';
 import { git } from './git.js';
 import { saveVaultDir } from './settings.js';
@@ -26,6 +28,31 @@ export interface Apps {
 export interface Hooks {
   onVaultDirChanged?: (dir: string) => Promise<void>;
   documentRenderers?: DocumentRendererRegistry;
+}
+
+function fieldValues(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : value === undefined ? [] : [value];
+}
+
+function textField(body: Record<string, unknown>, key: string) {
+  const value = fieldValues(body[key])[0];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function replaceBundleDirectory(bundleDir: string, stagedBundle: string | null) {
+  let backup: string | null = null;
+  if (existsSync(bundleDir)) {
+    backup = mkdtempSync(`${bundleDir}-backup-`);
+    rmSync(backup, { recursive: true });
+    renameSync(bundleDir, backup);
+  }
+  try {
+    if (stagedBundle) renameSync(stagedBundle, bundleDir);
+  } catch (error) {
+    if (backup) renameSync(backup, bundleDir);
+    throw error;
+  }
+  if (backup) rmSync(backup, { recursive: true });
 }
 
 export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<Apps> {
@@ -134,18 +161,31 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
     return c.json({ swapped });
   });
 
-  api.post('/api/docs', async c => {
+  api.post('/api/docs', bodyLimit({
+    maxSize: MAX_BUNDLE_REQUEST_BYTES,
+    onError: c => c.json({ error: `multipart request exceeds ${MAX_BUNDLE_REQUEST_BYTES} bytes` }, 413),
+  }), async c => {
     let body: Awaited<ReturnType<typeof c.req.parseBody>>;
     try {
-      body = await c.req.parseBody();
+      body = await c.req.parseBody({ all: true });
     } catch {
       return c.json({ error: 'invalid multipart form data' }, 400);
     }
-    const file = body['file'];
-    if (!(file instanceof File)) return c.json({ error: 'multipart field "file" required' }, 400);
+    const files = fieldValues(body['file']);
+    if (files.length !== 1 || !(files[0] instanceof File)) {
+      return c.json({ error: 'multipart field "file" required exactly once' }, 400);
+    }
+    const file = files[0];
+    let bundleFiles;
+    try {
+      bundleFiles = await parseBundleFiles(body, file.name);
+    } catch (error) {
+      if (error instanceof BundleInputError) return c.json({ error: error.message }, error.status);
+      throw error;
+    }
 
-    const project = slugify(String(body['project'] || loadConfig(vaultDir).defaultProject));
-    const fallbackTitle = String(body['title'] || titleFromFilename(file.name));
+    const project = slugify(textField(body, 'project') || loadConfig(vaultDir).defaultProject);
+    const fallbackTitle = textField(body, 'title') || titleFromFilename(file.name);
     let source: string;
     try {
       source = new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer());
@@ -154,7 +194,7 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
     }
     let rendered;
     try {
-      rendered = documentRenderers.render(file.name, source, fallbackTitle, body['type'] ? String(body['type']) : undefined);
+      rendered = documentRenderers.render(file.name, source, fallbackTitle, textField(body, 'type'));
     } catch (error) {
       if (error instanceof DocumentInputError) return c.json({ error: error.message }, error.status);
       throw error;
@@ -174,6 +214,26 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
       dir = path.join(vaultDir, 'docs', project, slug);
     }
     const previousMeta = isUpdate ? readMeta(project, slug) : null;
+    const projectDir = path.join(vaultDir, 'docs', project);
+    mkdirSync(projectDir, { recursive: true });
+    let stagedBundle: string | null = null;
+    if (bundleFiles !== null) {
+      stagedBundle = mkdtempSync(path.join(projectDir, `.${slug}-bundle-`));
+      try {
+        for (const companion of bundleFiles) {
+          const destination = path.resolve(stagedBundle, companion.path);
+          if (!destination.startsWith(path.resolve(stagedBundle) + path.sep)) {
+            throw new BundleInputError(`unsafe bundle path: ${companion.path}`, 400);
+          }
+          mkdirSync(path.dirname(destination), { recursive: true });
+          writeFileSync(destination, companion.bytes);
+        }
+      } catch (error) {
+        rmSync(stagedBundle, { recursive: true, force: true });
+        if (error instanceof BundleInputError) return c.json({ error: error.message }, error.status);
+        throw error;
+      }
+    }
     mkdirSync(dir, { recursive: true });
     writeFileSync(path.join(dir, 'index.html'), rendered.html);
     writeFileSync(path.join(dir, rendered.sourceFile), source);
@@ -192,17 +252,27 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
     };
     if (rendered.id) meta.document_id = rendered.id;
     if (rendered.schema) meta.schema = rendered.schema;
-    for (const key of ['source', 'model', 'transcript'] as const) {
-      if (body[key]) meta[key] = String(body[key]);
+    if (bundleFiles !== null) {
+      meta.bundle = true;
+      meta.bundle_file_count = bundleFiles.length;
+      meta.bundle_bytes = bundleFiles.reduce((total, companion) => total + companion.bytes.byteLength, 0);
     }
-    if (body['source_repo']) {
-      meta.source_repo_path = String(body['source_repo']);
+    for (const key of ['source', 'model', 'transcript'] as const) {
+      const value = textField(body, key);
+      if (value) meta[key] = value;
+    }
+    const sourceRepo = textField(body, 'source_repo');
+    if (sourceRepo) {
+      meta.source_repo_path = sourceRepo;
       try {
-        const { stdout } = await execa('git', ['-C', String(body['source_repo']), 'rev-parse', 'HEAD']);
+        const { stdout } = await execa('git', ['-C', sourceRepo, 'rev-parse', 'HEAD']);
         meta.source_repo_commit = stdout.trim();
       } catch { /* not a git repo — schema field left empty */ }
     }
     writeFileSync(path.join(dir, 'meta.yaml'), toYaml(meta));
+    const bundleDir = path.join(dir, 'bundle');
+    replaceBundleDirectory(bundleDir, stagedBundle);
+    stagedBundle = null;
 
     const versions = await docVersions(project, slug);
     const subject = isUpdate ? `Update ${project}/${slug} (v${versions.length + 1})` : `Add ${project}/${slug}`;
@@ -210,12 +280,19 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
       meta.model && `Model: ${meta.model}`,
       meta.transcript && `Transcript: ${meta.transcript}`,
     ].filter(Boolean).join('\n');
-    await git(vaultDir, ['add', `docs/${project}/${slug}`]);
-    try {
+    const documentPath = `docs/${project}/${slug}`;
+    await git(vaultDir, ['add', documentPath]);
+    const stagedDiff = await execa('git', ['diff', '--cached', '--quiet', '--', documentPath], {
+      cwd: vaultDir,
+      reject: false,
+    });
+    if (stagedDiff.exitCode === 1) {
       await git(vaultDir, ['commit', '-m', details ? `${subject}\n\n${details}` : subject]);
       // Own commit — sync the watcher so pollHead doesn't fire a full reindex
       lastSha = (await git(vaultDir, ['rev-parse', 'HEAD'])).stdout.trim();
-    } catch { /* identical re-upload — nothing to commit */ }
+    } else if (stagedDiff.exitCode !== 0) {
+      throw new Error(`git diff failed with exit code ${stagedDiff.exitCode}`);
+    }
 
     await indexDoc(project, slug, title, created, rendered.html);
     return c.json({
@@ -328,9 +405,26 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
   const DOC_HEADERS = {
     'Content-Type': 'text/html; charset=utf-8',
     'Cache-Control': 'no-store',
-    'Content-Security-Policy': "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; font-src data:",
+    'Content-Security-Policy': "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src data:",
     'X-Content-Type-Options': 'nosniff',
   };
+  const ASSET_HEADERS = {
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+  };
+
+  function validDocumentPath(project: string, slug: string) {
+    return /^[a-z0-9-]+$/.test(project) && /^[a-z0-9-]+$/.test(slug);
+  }
+
+  async function historicalAsset(project: string, slug: string, sha: string, relativePath: string) {
+    const { stdout } = await execa('git', ['show', `${sha}:docs/${project}/${slug}/bundle/${relativePath}`], {
+      cwd: vaultDir,
+      encoding: 'buffer',
+      stripFinalNewline: false,
+    });
+    return new Uint8Array(stdout);
+  }
 
   // Local Mermaid build — docs' CSP blocks CDN scripts, so serve it same-origin
   const mermaidJs = readFileSync(createRequire(import.meta.url).resolve('mermaid/dist/mermaid.min.js'));
@@ -338,29 +432,84 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
     headers: { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'public, max-age=3600' },
   }));
 
-  docsApp.get('/:project/:slug', async c => {
+  docsApp.get('/:project/:slug', c => {
     const { project, slug } = c.req.param();
-    if (!/^[a-z0-9-]+$/.test(project) || !/^[a-z0-9-]+$/.test(slug)) return c.notFound();
-    const sha = c.req.query('sha');
-    let html: string;
-    if (sha) {
+    if (!validDocumentPath(project, slug)) return c.notFound();
+    const requestUrl = new URL(c.req.url);
+    if (requestUrl.searchParams.has('sha')) {
+      const sha = requestUrl.searchParams.get('sha') ?? '';
       if (!/^[0-9a-f]{7,40}$/i.test(sha)) return c.text('bad sha', 400);
-      try {
-        ({ stdout: html } = await git(vaultDir, ['show', `${sha}:docs/${project}/${slug}/index.html`]));
-      } catch {
-        return c.notFound();
-      }
-    } else {
-      const f = path.join(vaultDir, 'docs', project, slug, 'index.html');
-      if (!existsSync(f)) return c.notFound();
-      try {
-        html = renderLatest(project, slug).html;
-      } catch (error) {
-        if (error instanceof DocumentInputError) return c.text(error.message, error.status);
-        throw error;
-      }
+      return c.redirect(`/${project}/${slug}/_history/${sha}/`, 308);
+    }
+    return c.redirect(`/${project}/${slug}/`, 308);
+  });
+
+  docsApp.get('/:project/:slug/', c => {
+    const { project, slug } = c.req.param();
+    if (!validDocumentPath(project, slug)) return c.notFound();
+    const f = path.join(vaultDir, 'docs', project, slug, 'index.html');
+    if (!existsSync(f)) return c.notFound();
+    let html: string;
+    try {
+      html = renderLatest(project, slug).html;
+    } catch (error) {
+      if (error instanceof DocumentInputError) return c.text(error.message, error.status);
+      throw error;
     }
     return new Response(html, { headers: { ...DOC_HEADERS } });
+  });
+
+  docsApp.get('/:project/:slug/_history/:sha/', async c => {
+    const { project, slug, sha } = c.req.param();
+    if (!validDocumentPath(project, slug)) return c.notFound();
+    if (!/^[0-9a-f]{7,40}$/i.test(sha)) return c.text('bad sha', 400);
+    try {
+      const { stdout } = await git(vaultDir, ['show', `${sha}:docs/${project}/${slug}/index.html`]);
+      return new Response(stdout, { headers: { ...DOC_HEADERS } });
+    } catch {
+      return c.notFound();
+    }
+  });
+
+  docsApp.get('/:project/:slug/_history/:sha/:asset{.+}', async c => {
+    const { project, slug, sha } = c.req.param();
+    const relativePath = c.req.param('asset');
+    if (!validDocumentPath(project, slug) || !/^[0-9a-f]{7,40}$/i.test(sha)) return c.notFound();
+    let contentType: string;
+    try {
+      contentType = bundleContentType(relativePath);
+    } catch {
+      return c.notFound();
+    }
+    try {
+      const bytes = await historicalAsset(project, slug, sha, relativePath);
+      return new Response(bytes, { headers: { ...ASSET_HEADERS, 'Content-Type': contentType } });
+    } catch {
+      return c.notFound();
+    }
+  });
+
+  docsApp.get('/:project/:slug/:asset{.+}', c => {
+    const { project, slug } = c.req.param();
+    const relativePath = c.req.param('asset');
+    if (!validDocumentPath(project, slug)) return c.notFound();
+    let contentType: string;
+    try {
+      validateBundlePath(relativePath);
+      contentType = bundleContentType(relativePath);
+    } catch {
+      return c.notFound();
+    }
+    const bundleRoot = path.resolve(vaultDir, 'docs', project, slug, 'bundle');
+    const assetPath = path.resolve(bundleRoot, relativePath);
+    if (!assetPath.startsWith(bundleRoot + path.sep) || !existsSync(bundleRoot) || !existsSync(assetPath)) return c.notFound();
+    const rootStat = lstatSync(bundleRoot);
+    const assetStat = lstatSync(assetPath);
+    if (rootStat.isSymbolicLink() || !rootStat.isDirectory() || assetStat.isSymbolicLink() || !assetStat.isFile()) return c.notFound();
+    const realBundleRoot = realpathSync(bundleRoot);
+    const realAssetPath = realpathSync(assetPath);
+    if (!realAssetPath.startsWith(realBundleRoot + path.sep)) return c.notFound();
+    return new Response(readFileSync(assetPath), { headers: { ...ASSET_HEADERS, 'Content-Type': contentType } });
   });
 
   return { api, docsApp, config, db, reindex: reindexVault, stop: () => clearInterval(watchTimer) };

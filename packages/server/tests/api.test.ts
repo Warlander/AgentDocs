@@ -29,6 +29,23 @@ function postDoc(fields: Record<string, string>, html = '<p>hello</p>', name = '
   return apps.api.request('/api/docs', { method: 'POST', body: form });
 }
 
+function postBundle(
+  fields: Record<string, string>,
+  companions: Array<{ path: string; content: string | Uint8Array }>,
+  html = '<link rel="stylesheet" href="styles.css"><img src="assets/panel.png">',
+) {
+  const form = new FormData();
+  form.append('file', new File([html], 'report.html', { type: 'text/html' }));
+  const files = companions.map((companion, index) => {
+    const bytes = typeof companion.content === 'string' ? new TextEncoder().encode(companion.content) : companion.content;
+    form.append(`asset_${index}`, new File([bytes], path.basename(companion.path)));
+    return { field: `asset_${index}`, path: companion.path, size: bytes.byteLength };
+  });
+  form.append('bundle_manifest', JSON.stringify({ version: 1, files }));
+  for (const [key, value] of Object.entries(fields)) form.append(key, value);
+  return apps.api.request('/api/docs', { method: 'POST', body: form });
+}
+
 function agentDoc(title: string, id = 'agent-report') {
   return `@schema agentdocs/v1
 @id ${id}
@@ -235,6 +252,93 @@ describe('POST /api/docs', () => {
     const res = await postDoc({ project: 'demo', title: 'Same' });
     expect(res.status).toBe(200);
     expect(await logCount('docs/demo/same')).toBe(1);
+  });
+
+  it('stores a bundle and its metadata in the document revision', async () => {
+    const res = await postBundle({ project: 'demo', title: 'Report' }, [
+      { path: 'styles.css', content: 'body { color: red; }' },
+      { path: 'assets/panel.png', content: new Uint8Array([1, 2, 3]) },
+    ]);
+    expect(res.status).toBe(201);
+    expect(readFileSync(path.join(dir, 'docs/demo/report/bundle/styles.css'), 'utf8')).toContain('color: red');
+    expect(readFileSync(path.join(dir, 'docs/demo/report/bundle/assets/panel.png'))).toEqual(Buffer.from([1, 2, 3]));
+    const meta = readFileSync(path.join(dir, 'docs/demo/report/meta.yaml'), 'utf8');
+    expect(meta).toContain('bundle: true');
+    expect(meta).toContain('bundle_file_count: 2');
+    expect(await logCount('docs/demo/report')).toBe(1);
+  });
+
+  it('does not commit an identical bundle re-upload', async () => {
+    const companions = [{ path: 'data.json', content: '{"same":true}' }];
+    await postBundle({ project: 'demo', title: 'Report' }, companions);
+    const res = await postBundle({ project: 'demo', title: 'Report' }, companions);
+    expect(res.status).toBe(200);
+    expect(await logCount('docs/demo/report')).toBe(1);
+  });
+
+  it('replaces a bundle completely and a single-file update removes it', async () => {
+    await postBundle({ project: 'demo', title: 'Report' }, [
+      { path: 'old.json', content: '{}' },
+      { path: 'assets/panel.png', content: new Uint8Array([1]) },
+    ]);
+    await postBundle({ project: 'demo', title: 'Report' }, [
+      { path: 'assets/panel.png', content: new Uint8Array([2]) },
+    ]);
+    expect(existsSync(path.join(dir, 'docs/demo/report/bundle/old.json'))).toBe(false);
+    expect(readFileSync(path.join(dir, 'docs/demo/report/bundle/assets/panel.png'))).toEqual(Buffer.from([2]));
+
+    await postDoc({ project: 'demo', title: 'Report' }, '<p>plain</p>');
+    expect(existsSync(path.join(dir, 'docs/demo/report/bundle'))).toBe(false);
+    expect(readFileSync(path.join(dir, 'docs/demo/report/meta.yaml'), 'utf8')).not.toContain('bundle:');
+  });
+
+  it('rejects an invalid bundle without changing the existing revision', async () => {
+    await postBundle({ project: 'demo', title: 'Report' }, [{ path: 'data.json', content: '{"v":1}' }]);
+    const before = readFileSync(path.join(dir, 'docs/demo/report/bundle/data.json'), 'utf8');
+    const form = new FormData();
+    form.append('file', new File(['<p>changed</p>'], 'report.html'));
+    form.append('project', 'demo');
+    form.append('title', 'Report');
+    form.append('bundle_manifest', JSON.stringify({ version: 1, files: [
+      { field: 'asset_0', path: '../escape.png', size: 1 },
+    ] }));
+    form.append('asset_0', new File([new Uint8Array([1])], 'escape.png'));
+    const res = await apps.api.request('/api/docs', { method: 'POST', body: form });
+    expect(res.status).toBe(400);
+    expect(readFileSync(path.join(dir, 'docs/demo/report/bundle/data.json'), 'utf8')).toBe(before);
+    expect(await logCount('docs/demo/report')).toBe(1);
+  });
+
+  it.each([
+    ['missing field', { version: 1, files: [{ field: 'asset_0', path: 'image.png', size: 1 }] }, false],
+    ['size mismatch', { version: 1, files: [{ field: 'asset_0', path: 'image.png', size: 2 }] }, true],
+    ['unsupported extension', { version: 1, files: [{ field: 'asset_0', path: 'script.js', size: 1 }] }, true],
+  ])('rejects malformed bundle: %s', async (_label, manifest, includeFile) => {
+    const form = new FormData();
+    form.append('file', new File(['<p>bundle</p>'], 'report.html'));
+    form.append('project', 'demo');
+    form.append('bundle_manifest', JSON.stringify(manifest));
+    if (includeFile) form.append('asset_0', new File([new Uint8Array([1])], 'asset.bin'));
+    const res = await apps.api.request('/api/docs', { method: 'POST', body: form });
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(existsSync(path.join(dir, 'docs/demo/report'))).toBe(false);
+  });
+
+  it('rejects undeclared and duplicate bundle fields', async () => {
+    const undeclared = new FormData();
+    undeclared.append('file', new File(['<p>bundle</p>'], 'report.html'));
+    undeclared.append('bundle_manifest', JSON.stringify({ version: 1, files: [] }));
+    undeclared.append('asset_0', new File([new Uint8Array([1])], 'image.png'));
+    expect((await apps.api.request('/api/docs', { method: 'POST', body: undeclared })).status).toBe(400);
+
+    const duplicate = new FormData();
+    duplicate.append('file', new File(['<p>bundle</p>'], 'report.html'));
+    duplicate.append('bundle_manifest', JSON.stringify({ version: 1, files: [
+      { field: 'asset_0', path: 'one.png', size: 1 },
+      { field: 'asset_0', path: 'two.png', size: 1 },
+    ] }));
+    duplicate.append('asset_0', new File([new Uint8Array([1])], 'image.png'));
+    expect((await apps.api.request('/api/docs', { method: 'POST', body: duplicate })).status).toBe(400);
   });
 });
 
