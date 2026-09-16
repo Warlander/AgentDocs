@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { html as diff2html } from 'diff2html';
 import 'diff2html/bundles/css/diff2html.min.css';
+import './diff.css';
 import { initialDiffRange } from './diff-range.js';
 import { latestProjectUpdate, sortProjectDocuments } from './document-order.js';
 import { parseDocumentScroll } from './document-scroll.js';

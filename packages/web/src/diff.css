@@ -1,0 +1,13 @@
+.d2h-dark-color-scheme .d2h-diff-table {
+  table-layout: fixed;
+}
+
+.d2h-dark-color-scheme .d2h-code-line,
+.d2h-dark-color-scheme .d2h-code-side-line {
+  white-space: normal;
+}
+
+.d2h-dark-color-scheme .d2h-code-line-ctn {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
