@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { clearDocs, getDoc, listDocs, openDb, setFavorite, upsertDoc, type Db } from '../src/db.js';
+import { clearDocs, getDoc, listDocs, needsUpdatedBackfill, openDb, setFavorite, upsertDoc, type Db } from '../src/db.js';
 
 let db: Db;
 
@@ -58,6 +58,13 @@ describe('upsertDoc / getDoc', () => {
 
   it('returns undefined for unknown slug', () => {
     expect(getDoc(db, 'nope')).toBeUndefined();
+  });
+
+  it('detects legacy rows that need updated timestamps', () => {
+    db.prepare('UPDATE doc_state SET updated = NULL WHERE slug = ?').run('report');
+    expect(needsUpdatedBackfill(db)).toBe(true);
+    upsertDoc(db, { slug: 'report', project: 'demo', title: 'Quarterly Report', created: '2026-01-01', updated: '2026-01-03', body: 'revenue grew', latestSha: 'aaa' });
+    expect(needsUpdatedBackfill(db)).toBe(false);
   });
 });
 

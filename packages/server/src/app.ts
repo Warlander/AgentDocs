@@ -8,7 +8,7 @@ import { execa } from 'execa';
 import { parse as parseYaml, stringify as toYaml } from 'yaml';
 import { parse as parseToml, stringify as toToml } from 'smol-toml';
 import { loadConfig, type VaultConfig } from './config.js';
-import { clearDocs, getDoc, listDocs, openDb, setFavorite, upsertDoc, type Db } from './db.js';
+import { clearDocs, getDoc, listDocs, needsUpdatedBackfill, openDb, setFavorite, upsertDoc, type Db } from './db.js';
 import { BundleInputError, MAX_BUNDLE_REQUEST_BYTES, bundleContentType, parseBundleFiles, validateBundlePath } from './bundles.js';
 import { defaultDocumentRenderers, DocumentInputError, type DocumentRendererRegistry, titleFromFilename } from './documents.js';
 import { git } from './git.js';
@@ -364,7 +364,7 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
           slug, project,
           title: rendered.title ?? meta?.title ?? slug,
           created: meta?.created ?? '',
-          updated: meta?.updated ?? meta?.created ?? '',
+          updated: meta?.updated ?? versions[0]?.date ?? meta?.created ?? '',
           body: stripHtml(rendered.html),
           latestSha: versions[0]?.sha ?? null,
         });
@@ -378,6 +378,8 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
     })();
     return rows.length;
   }
+
+  if (needsUpdatedBackfill(db)) await reindexVault();
 
   api.post('/api/reindex', async c => c.json({ indexed: await reindexVault() }));
 

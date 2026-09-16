@@ -77,3 +77,7 @@ export function clearDocs(db: Db) {
   db.exec('DELETE FROM docs');
   db.exec('DELETE FROM doc_state');
 }
+
+export function needsUpdatedBackfill(db: Db) {
+  return db.prepare('SELECT 1 FROM doc_state WHERE updated IS NULL LIMIT 1').get() !== undefined;
+}
