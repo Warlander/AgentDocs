@@ -5,6 +5,7 @@ export interface DocRow {
   project: string;
   title: string;
   created: string;
+  updated: string;
   latestSha: string | null;
   favorite: boolean;
 }
@@ -16,7 +17,11 @@ export function openDb(file: string): Db {
   db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS docs USING fts5(
     slug UNINDEXED, project, title, body, created UNINDEXED)`);
   db.exec(`CREATE TABLE IF NOT EXISTS doc_state(
-    slug TEXT PRIMARY KEY, latest_sha TEXT)`);
+    slug TEXT PRIMARY KEY, latest_sha TEXT, updated TEXT)`);
+  const stateColumns = db.prepare('PRAGMA table_info(doc_state)').all() as Array<{ name: string }>;
+  if (!stateColumns.some(column => column.name === 'updated')) {
+    db.exec('ALTER TABLE doc_state ADD COLUMN updated TEXT');
+  }
   // Favorites live outside the search index: clearDocs must never wipe them
   db.exec(`CREATE TABLE IF NOT EXISTS favorites(
     slug TEXT PRIMARY KEY)`);
@@ -27,12 +32,13 @@ export function upsertDoc(db: Db, d: Omit<DocRow, 'favorite'> & { body: string }
   db.prepare('DELETE FROM docs WHERE slug = ?').run(d.slug);
   db.prepare('INSERT INTO docs (slug, project, title, body, created) VALUES (?, ?, ?, ?, ?)')
     .run(d.slug, d.project, d.title, d.body, d.created);
-  db.prepare(`INSERT INTO doc_state (slug, latest_sha) VALUES (?, ?)
-    ON CONFLICT(slug) DO UPDATE SET latest_sha = excluded.latest_sha`)
-    .run(d.slug, d.latestSha);
+  db.prepare(`INSERT INTO doc_state (slug, latest_sha, updated) VALUES (?, ?, ?)
+    ON CONFLICT(slug) DO UPDATE SET latest_sha = excluded.latest_sha, updated = excluded.updated`)
+    .run(d.slug, d.latestSha, d.updated);
 }
 
-const LIST_SQL = `SELECT docs.slug, docs.project, docs.title, docs.created, doc_state.latest_sha AS latestSha,
+const LIST_SQL = `SELECT docs.slug, docs.project, docs.title, docs.created,
+    COALESCE(doc_state.updated, docs.created) AS updated, doc_state.latest_sha AS latestSha,
     (favorites.slug IS NOT NULL) AS favorite
   FROM docs
   LEFT JOIN doc_state ON doc_state.slug = docs.slug

@@ -12,4 +12,11 @@ describe('documentUrl', () => {
     expect(documentUrl('http://localhost:3001/', document, 'abc1234')).toBe(
       'http://localhost:3001/demo/report/_history/abc1234/');
   });
+
+  it('adds the viewer bridge flag only when requested', () => {
+    expect(documentUrl('http://localhost:3001', document, '', true)).toBe(
+      'http://localhost:3001/demo/report/?viewer=1');
+    expect(documentUrl('http://localhost:3001', document, 'abc1234', true)).toBe(
+      'http://localhost:3001/demo/report/_history/abc1234/?viewer=1');
+  });
 });

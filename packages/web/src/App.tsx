@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { html as diff2html } from 'diff2html';
 import 'diff2html/bundles/css/diff2html.min.css';
+import { latestProjectUpdate, sortProjectDocuments } from './document-order.js';
+import { parseDocumentScroll } from './document-scroll.js';
 import { documentUrl } from './document-url.js';
 import { parseVaultNavigation } from './vault-navigation.js';
 
@@ -9,6 +11,7 @@ interface Doc {
   project: string;
   title: string;
   created: string;
+  updated: string;
   latestSha: string | null;
   favorite: boolean;
 }
@@ -107,6 +110,7 @@ export default function App() {
   const [dragging, setDragging] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const scrollRatioRef = useRef(0);
   const settingsOrig = useRef<Settings | null>(null);
   const loadRef = useRef<() => void>(() => {});
   const prevShas = useRef(new Map<string, string | null>());
@@ -229,6 +233,7 @@ export default function App() {
   };
 
   const select = async (d: Doc) => {
+    scrollRatioRef.current = 0;
     setSelected(d);
     markSeen(d);
     setSha('');
@@ -242,6 +247,11 @@ export default function App() {
   useEffect(() => {
     const onMessage = async (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow) return;
+      const scrollRatio = parseDocumentScroll(event.data);
+      if (scrollRatio !== null) {
+        scrollRatioRef.current = scrollRatio;
+        return;
+      }
       const destination = parseVaultNavigation(event.data);
       if (!destination) return;
       try {
@@ -310,9 +320,8 @@ export default function App() {
     for (const d of [...docs].sort((a, b) => b.created.localeCompare(a.created))) {
       map.set(d.project, [...(map.get(d.project) ?? []), d]);
     }
-    // newest doc per project before pinning, so favorites don't affect project order
-    const newest = new Map([...map.entries()].map(([p, list]) => [p, list[0]?.created ?? '']));
-    for (const list of map.values()) list.sort((a, b) => Number(b.favorite) - Number(a.favorite));
+    const newest = new Map([...map.entries()].map(([project, list]) => [project, latestProjectUpdate(list)]));
+    for (const [project, list] of map) map.set(project, sortProjectDocuments(list));
     return [...map.entries()].sort((a, b) => newest.get(b[0])!.localeCompare(newest.get(a[0])!));
   }, [docs]);
 
@@ -424,7 +433,11 @@ export default function App() {
                 ref={iframeRef}
                 key={`${selected.slug}:${sha || docs.find(d => docKey(d) === docKey(selected))?.latestSha || ''}`}
                 sandbox="allow-scripts"
-                src={documentUrl(origin, selected, sha)}
+                src={documentUrl(origin, selected, sha, true)}
+                onLoad={() => iframeRef.current?.contentWindow?.postMessage({
+                  type: 'agentdocs:restore-scroll',
+                  ratio: scrollRatioRef.current,
+                }, origin)}
                 className={`flex-1 bg-white ${dragging ? 'pointer-events-none' : ''}`}
                 title={selected.title}
               />

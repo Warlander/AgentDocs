@@ -90,9 +90,9 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
     });
   }
 
-  async function indexDoc(project: string, slug: string, title: string, created: string, html: string) {
+  async function indexDoc(project: string, slug: string, title: string, created: string, updated: string, html: string) {
     const versions = await docVersions(project, slug);
-    upsertDoc(db, { slug, project, title, created, body: stripHtml(html), latestSha: versions[0]?.sha ?? null });
+    upsertDoc(db, { slug, project, title, created, updated, body: stripHtml(html), latestSha: versions[0]?.sha ?? null });
   }
 
   const api = new Hono();
@@ -244,9 +244,11 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
     }
 
     const created = (isUpdate && previousMeta?.created) || new Date().toISOString();
+    let updated = (isUpdate && previousMeta?.updated) || created;
     const meta: Record<string, unknown> = {
       title,
       created,
+      updated,
       type: rendered.type,
       source_file: rendered.sourceFile,
     };
@@ -287,6 +289,12 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
       reject: false,
     });
     if (stagedDiff.exitCode === 1) {
+      if (isUpdate) {
+        updated = new Date().toISOString();
+        meta.updated = updated;
+        writeFileSync(path.join(dir, 'meta.yaml'), toYaml(meta));
+        await git(vaultDir, ['add', documentPath]);
+      }
       await git(vaultDir, ['commit', '-m', details ? `${subject}\n\n${details}` : subject]);
       // Own commit — sync the watcher so pollHead doesn't fire a full reindex
       lastSha = (await git(vaultDir, ['rev-parse', 'HEAD'])).stdout.trim();
@@ -294,9 +302,9 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
       throw new Error(`git diff failed with exit code ${stagedDiff.exitCode}`);
     }
 
-    await indexDoc(project, slug, title, created, rendered.html);
+    await indexDoc(project, slug, title, created, updated, rendered.html);
     return c.json({
-      slug, project, title, created, type: rendered.type, update: isUpdate,
+      slug, project, title, created, updated, type: rendered.type, update: isUpdate,
       ...(rendered.warnings?.length ? { warnings: rendered.warnings } : {}),
     }, isUpdate ? 200 : 201);
   });
@@ -356,6 +364,7 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
           slug, project,
           title: rendered.title ?? meta?.title ?? slug,
           created: meta?.created ?? '',
+          updated: meta?.updated ?? meta?.created ?? '',
           body: stripHtml(rendered.html),
           latestSha: versions[0]?.sha ?? null,
         });
@@ -412,6 +421,30 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
     'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff',
   };
+  const VIEWER_BRIDGE = `<script>
+(() => {
+  const report = () => {
+    const max = Math.max(0, document.documentElement.scrollHeight - innerHeight);
+    parent.postMessage({ type: 'agentdocs:scroll', ratio: max ? scrollY / max : 0 }, '*');
+  };
+  addEventListener('scroll', report, { passive: true });
+  addEventListener('message', event => {
+    if (event.source !== parent || event.data?.type !== 'agentdocs:restore-scroll') return;
+    const ratio = Number(event.data.ratio);
+    if (!Number.isFinite(ratio) || ratio < 0 || ratio > 1) return;
+    requestAnimationFrame(() => {
+      const max = Math.max(0, document.documentElement.scrollHeight - innerHeight);
+      scrollTo(0, ratio * max);
+    });
+  });
+})();
+</script>`;
+
+  function documentResponseHtml(html: string, viewer: boolean) {
+    if (!viewer) return html;
+    const bodyEnd = html.search(/<\/body\s*>/i);
+    return bodyEnd === -1 ? html + VIEWER_BRIDGE : html.slice(0, bodyEnd) + VIEWER_BRIDGE + html.slice(bodyEnd);
+  }
 
   function validDocumentPath(project: string, slug: string) {
     return /^[a-z0-9-]+$/.test(project) && /^[a-z0-9-]+$/.test(slug);
@@ -456,7 +489,7 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
       if (error instanceof DocumentInputError) return c.text(error.message, error.status);
       throw error;
     }
-    return new Response(html, { headers: { ...DOC_HEADERS } });
+    return new Response(documentResponseHtml(html, c.req.query('viewer') === '1'), { headers: { ...DOC_HEADERS } });
   });
 
   docsApp.get('/:project/:slug/_history/:sha/', async c => {
@@ -465,7 +498,7 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
     if (!/^[0-9a-f]{7,40}$/i.test(sha)) return c.text('bad sha', 400);
     try {
       const { stdout } = await git(vaultDir, ['show', `${sha}:docs/${project}/${slug}/index.html`]);
-      return new Response(stdout, { headers: { ...DOC_HEADERS } });
+      return new Response(documentResponseHtml(stdout, c.req.query('viewer') === '1'), { headers: { ...DOC_HEADERS } });
     } catch {
       return c.notFound();
     }

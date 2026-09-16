@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Recently updated documents move to the top of their project list, and version reloads preserve the viewer's relative scroll position when possible
 - AgentDoc source owns its immutable vault ID and editable title; conflicting IDs are rejected instead of silently suffixed
 - Locked decisions now use a responsive three-column grid with distinct problem, decision, and description regions; individual `layout=full` entries render first to avoid partial rows, and acceptance criteria belong in structured tests
 - Standard tables now combine a tinted identity column with alternating rows; evaluations use colored 0–3 capsule scales as the sole score with reasoning directly beneath each metric

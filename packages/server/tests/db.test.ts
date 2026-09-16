@@ -5,8 +5,8 @@ let db: Db;
 
 beforeEach(() => {
   db = openDb(':memory:');
-  upsertDoc(db, { slug: 'report', project: 'demo', title: 'Quarterly Report', created: '2026-01-01', body: 'revenue grew', latestSha: 'aaa' });
-  upsertDoc(db, { slug: 'notes', project: 'misc', title: 'Meeting Notes', created: '2026-01-02', body: 'budget cuts', latestSha: 'bbb' });
+  upsertDoc(db, { slug: 'report', project: 'demo', title: 'Quarterly Report', created: '2026-01-01', updated: '2026-01-03', body: 'revenue grew', latestSha: 'aaa' });
+  upsertDoc(db, { slug: 'notes', project: 'misc', title: 'Meeting Notes', created: '2026-01-02', updated: '2026-01-02', body: 'budget cuts', latestSha: 'bbb' });
 });
 
 describe('listDocs FTS query escaping', () => {
@@ -46,12 +46,14 @@ describe('upsertDoc / getDoc', () => {
     const doc = getDoc(db, 'report');
     expect(doc?.title).toBe('Quarterly Report');
     expect(doc?.latestSha).toBe('aaa');
+    expect(doc?.updated).toBe('2026-01-03');
   });
 
   it('re-upsert same slug keeps single row and updates state', () => {
-    upsertDoc(db, { slug: 'report', project: 'demo', title: 'New Title', created: '2026-01-01', body: 'x', latestSha: 'ccc' });
+    upsertDoc(db, { slug: 'report', project: 'demo', title: 'New Title', created: '2026-01-01', updated: '2026-01-04', body: 'x', latestSha: 'ccc' });
     expect(listDocs(db).filter(d => d.slug === 'report')).toHaveLength(1);
     expect(getDoc(db, 'report')?.latestSha).toBe('ccc');
+    expect(getDoc(db, 'report')?.updated).toBe('2026-01-04');
   });
 
   it('returns undefined for unknown slug', () => {
@@ -80,7 +82,7 @@ describe('favorites', () => {
   it('favorites survive clearDocs (reindex)', () => {
     setFavorite(db, 'report', true);
     clearDocs(db);
-    upsertDoc(db, { slug: 'report', project: 'demo', title: 'Quarterly Report', created: '2026-01-01', body: 'revenue grew', latestSha: 'aaa' });
+    upsertDoc(db, { slug: 'report', project: 'demo', title: 'Quarterly Report', created: '2026-01-01', updated: '2026-01-03', body: 'revenue grew', latestSha: 'aaa' });
     expect(getDoc(db, 'report')?.favorite).toBe(true);
   });
 });

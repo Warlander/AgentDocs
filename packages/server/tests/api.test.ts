@@ -104,12 +104,14 @@ describe('POST /api/docs', () => {
 
   it('update keeps slug, bumps version, preserves created', async () => {
     const first = await (await postDoc({ project: 'demo', title: 'Report' })).json();
+    await new Promise(resolve => setTimeout(resolve, 2));
     const res = await postDoc({ project: 'demo', title: 'Report' }, '<p>changed</p>');
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.update).toBe(true);
     expect(body.slug).toBe('report');
     expect(body.created).toBe(first.created);
+    expect(body.updated.localeCompare(first.updated)).toBeGreaterThan(0);
     expect(await logCount('docs/demo/report')).toBe(2);
   });
 

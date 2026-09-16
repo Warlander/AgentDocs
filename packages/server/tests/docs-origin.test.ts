@@ -54,6 +54,14 @@ describe('docs origin', () => {
     expect(await res.text()).toBe('<p>v1</p>');
   });
 
+  it('adds the scroll bridge only for embedded viewer requests', async () => {
+    const raw = await (await apps.docsApp.request('/demo/report/')).text();
+    const viewer = await (await apps.docsApp.request('/demo/report/?viewer=1')).text();
+    expect(raw).not.toContain('agentdocs:restore-scroll');
+    expect(viewer).toContain('agentdocs:restore-scroll');
+    expect(viewer).toContain("type: 'agentdocs:scroll'");
+  });
+
   it('sets restrictive CSP and nosniff', async () => {
     const res = await apps.docsApp.request('/demo/report/');
     expect(res.headers.get('Content-Security-Policy')).toBe(
