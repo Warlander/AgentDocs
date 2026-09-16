@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Version diffs compare canonical document source instead of generated HTML, keeping line numbers and changes meaningful
 - Long HTML and code lines wrap within each diff pane instead of forcing horizontal scanning
 - Diff view now uses a readable dark palette and opens on the viewed revision compared with its immediate predecessor
 - Clicking an internal document reference now selects the destination in the vault UI, so the previously selected document can be clicked to return

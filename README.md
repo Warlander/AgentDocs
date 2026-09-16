@@ -26,6 +26,14 @@ npm run dev        # API on :3000, docs origin on :3001, web UI on :5173
 
 Production mode: `npm run build && npm start` — server serves the built UI on :3000.
 
+Browser layout tests use Playwright. Install its Chromium runtime once before
+running the full suite:
+
+```sh
+npx playwright install chromium
+npm test
+```
+
 ## Docker
 
 ```sh

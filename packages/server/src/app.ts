@@ -341,7 +341,13 @@ export async function createApps(vaultDir: string, hooks: Hooks = {}): Promise<A
     if (!/^[0-9a-f]{7,40}$/i.test(from) || !/^[0-9a-f]{7,40}$/i.test(to)) {
       return c.json({ error: 'from/to must be commit SHAs' }, 400);
     }
-    const { stdout } = await git(vaultDir, ['diff', from, to, '--', `docs/${doc.project}/${doc.slug}/index.html`]);
+    const documentDir = `docs/${doc.project}/${doc.slug}`;
+    const { stdout } = await git(vaultDir, [
+      'diff', from, to, '--',
+      `${documentDir}/source.agentdoc`,
+      `${documentDir}/source.md`,
+      `${documentDir}/source.html`,
+    ]);
     return c.text(stdout);
   });
 

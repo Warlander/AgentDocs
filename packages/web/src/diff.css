@@ -2,3 +2,10 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+.d2h-dark-color-scheme .d2h-code-linenumber,
+.d2h-dark-color-scheme .d2h-code-side-linenumber {
+  position: static;
+  display: table-cell;
+  vertical-align: top;
+}

@@ -6,7 +6,8 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run && playwright test",
+    "test:browser": "playwright test"
   },
   "dependencies": {
     "diff2html": "^3.4.51",
@@ -14,6 +15,7 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/vite": "^4.0.6",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",

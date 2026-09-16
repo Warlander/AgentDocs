@@ -376,6 +376,17 @@ describe('read endpoints', () => {
     expect(await res.text()).toContain('v2 revenue');
   });
 
+  it('diffs canonical AgentDoc source instead of generated HTML', async () => {
+    await postDoc({ project: 'demo' }, agentDoc('First title'), 'source.agentdoc');
+    await postDoc({ project: 'demo' }, agentDoc('Second title'), 'source.agentdoc');
+    const versions = await (await apps.api.request('/api/docs/agent-report/versions')).json();
+    const res = await apps.api.request(`/api/docs/agent-report/diff?from=${versions[1].sha}&to=${versions[0].sha}`);
+    const diff = await res.text();
+    expect(diff).toContain('-@title "First title"');
+    expect(diff).toContain('+@title "Second title"');
+    expect(diff).not.toContain('<!doctype html>');
+  });
+
   it('rejects malformed SHAs before reaching git', async () => {
     expect((await apps.api.request('/api/docs/report/diff?from=abc!%40%23&to=def4567')).status).toBe(400);
     expect((await apps.api.request('/api/docs/report/diff?from=$(touch%20x)&to=def4567')).status).toBe(400);

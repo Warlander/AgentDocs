@@ -5,3 +5,5 @@ docs/
 design/
 agentdocs.toml
 *.tsbuildinfo
+playwright-report/
+test-results/
