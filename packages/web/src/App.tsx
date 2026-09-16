@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { html as diff2html } from 'diff2html';
 import 'diff2html/bundles/css/diff2html.min.css';
+import { initialDiffRange } from './diff-range.js';
 import { latestProjectUpdate, sortProjectDocuments } from './document-order.js';
 import { parseDocumentScroll } from './document-scroll.js';
 import { documentUrl } from './document-url.js';
@@ -244,6 +245,17 @@ export default function App() {
     setVersions(await res.json());
   };
 
+  const toggleDiff = () => {
+    setDiffView('');
+    if (diffing) {
+      setDiffing(false);
+      setDiffRange({ from: '', to: '' });
+      return;
+    }
+    setDiffRange(initialDiffRange(versions, sha));
+    setDiffing(true);
+  };
+
   useEffect(() => {
     const onMessage = async (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow) return;
@@ -409,7 +421,7 @@ export default function App() {
                   </>
                 )}
                 <button
-                  onClick={() => { setDiffing(!diffing); setDiffView(''); setDiffRange({ from: '', to: '' }); }}
+                  onClick={toggleDiff}
                   className={`rounded px-2 py-1 ${diffing ? 'bg-neutral-600' : 'bg-neutral-800 hover:bg-neutral-700'}`}
                 >
                   Diff
@@ -427,7 +439,7 @@ export default function App() {
               </div>
             </div>
             {diffing && diffView ? (
-              <div className="flex-1 overflow-auto bg-white" dangerouslySetInnerHTML={{ __html: diffView }} />
+              <div className="d2h-dark-color-scheme flex-1 overflow-auto bg-[#0d1117] text-[#e6edf3] p-2" dangerouslySetInnerHTML={{ __html: diffView }} />
             ) : (
               <iframe
                 ref={iframeRef}

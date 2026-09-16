@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Diff view now uses a readable dark palette and opens on the viewed revision compared with its immediate predecessor
 - Clicking an internal document reference now selects the destination in the vault UI, so the previously selected document can be clicked to return
 - Invalid, empty, non-UTF-8, null-containing, malformed multipart, and unsupported document uploads now return 4xx responses instead of causing server errors or partial writes
 - Open document now reloads automatically when a new version is pushed; version dropdown refreshes too
